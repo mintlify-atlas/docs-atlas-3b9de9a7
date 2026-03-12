@@ -1,0 +1,156 @@
+{
+  "projectType": "saas",
+  "projectName": "SENTi-radar",
+  "projectDescription": "AI-powered real-time public sentiment analysis dashboard for social media discussions with multi-source data scraping and emotion classification.",
+  "theme": "aspen",
+  "primaryColor": "#0c044c",
+  "lightColor": "#fcdc4c",
+  "darkColor": "#fce274",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Setup & Configuration",
+            "pages": [
+              "setup/environment-variables",
+              "setup/supabase-setup",
+              "setup/scrape-do-integration",
+              "setup/api-keys"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/sentiment-analysis",
+              "features/emotion-classification",
+              "features/crisis-detection",
+              "features/ai-insights",
+              "features/scheduled-monitoring",
+              "features/data-export"
+            ]
+          },
+          {
+            "group": "Data Sources",
+            "pages": [
+              "sources/overview",
+              "sources/twitter-x",
+              "sources/reddit",
+              "sources/youtube",
+              "sources/google-news"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/analyzing-topics",
+              "guides/understanding-metrics",
+              "guides/exporting-data",
+              "guides/adding-data-sources"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Development",
+        "groups": [
+          {
+            "group": "Development Guide",
+            "pages": [
+              "development/getting-started",
+              "development/project-structure",
+              "development/testing"
+            ]
+          },
+          {
+            "group": "Components",
+            "pages": [
+              "components/overview",
+              "components/topic-detail",
+              "components/sentiment-gauge",
+              "components/emotion-breakdown"
+            ]
+          },
+          {
+            "group": "Services",
+            "pages": [
+              "services/scrape-do-provider",
+              "services/sentiment-engine"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Edge Functions",
+        "groups": [
+          {
+            "group": "API Reference",
+            "pages": [
+              "edge-functions/overview",
+              "edge-functions/analyze-topic",
+              "edge-functions/fetch-twitter",
+              "edge-functions/fetch-reddit",
+              "edge-functions/fetch-youtube",
+              "edge-functions/analyze-sentiment",
+              "edge-functions/generate-insights",
+              "edge-functions/scheduled-monitor"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Deployment",
+        "groups": [
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/overview",
+              "deployment/frontend",
+              "deployment/edge-functions",
+              "deployment/environment-secrets"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Real-time sentiment analysis from X (Twitter), Reddit, and YouTube",
+    "6-emotion classification using keyword-based analysis",
+    "Crisis spike detection with volatility scoring",
+    "AI-powered insights via Gemini/Groq with fallback to local analysis",
+    "Scrape.do integration for reliable social media data fetching",
+    "Scheduled topic monitoring with alerts",
+    "CSV and PDF export capabilities",
+    "Live feed with source status indicators",
+    "Theme-based contextual analysis (geopolitical, energy, policy, tech, etc.)",
+    "Supabase backend with PostgreSQL and Edge Functions"
+  ],
+  "publicApiSurface": [
+    "fetchXPosts(query, token, options)",
+    "fetchRedditPosts(query, token, options)",
+    "fetchAllScrapeDoSources(query, token, sources, options)",
+    "parseXHtml(html, query)",
+    "parseRedditJson(data, query)",
+    "buildApiUrl(token, targetUrl, options)",
+    "Edge Function: analyze-topic",
+    "Edge Function: fetch-twitter",
+    "Edge Function: fetch-reddit",
+    "Edge Function: fetch-youtube",
+    "Edge Function: analyze-sentiment",
+    "Edge Function: generate-insights",
+    "Edge Function: scheduled-monitor",
+    "useTopics() - React hook",
+    "useAnalyzeTopic() - React hook",
+    "useRealtimeData() - React hook"
+  ]
+}
