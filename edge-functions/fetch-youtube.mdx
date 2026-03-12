@@ -1,0 +1,345 @@
+---
+title: fetch-youtube
+description: Fetches YouTube video comments using the official Google YouTube Data API v3
+---
+
+## Overview
+
+The `fetch-youtube` function collects YouTube video comments related to a topic using the official YouTube Data API v3. It searches for relevant videos and extracts comments to capture public sentiment.
+
+## Endpoint
+
+```
+POST https://your-project.supabase.co/functions/v1/fetch-youtube
+```
+
+<Note>
+This function is designed to be called internally by the `analyze-topic` orchestrator.
+</Note>
+
+## Request
+
+<ParamField body="topic_id" type="string" required>
+  UUID of the topic to fetch YouTube comments for
+</ParamField>
+
+### Example Request
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://your-project.supabase.co/functions/v1/fetch-youtube \
+  -H "Authorization: Bearer YOUR_SERVICE_ROLE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"topic_id": "a3f5e8b1-4c2d-4e9f-8a1b-3c5d6e7f8a9b"}'
+```
+
+```typescript TypeScript (Internal)
+const ytRes = await fetch(
+  `${supabaseUrl}/functions/v1/fetch-youtube`,
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${supabaseServiceKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ topic_id: topicId })
+  }
+);
+```
+</CodeGroup>
+
+## Response
+
+<ResponseField name="success" type="boolean" required>
+  Whether YouTube comments were successfully fetched and stored
+</ResponseField>
+
+<ResponseField name="fetched" type="number" required>
+  Total number of comments retrieved across all videos
+</ResponseField>
+
+<ResponseField name="inserted" type="number" required>
+  Number of comments successfully inserted into the database
+</ResponseField>
+
+<ResponseField name="info" type="string">
+  Optional description of any errors or warnings
+</ResponseField>
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "fetched": 87,
+  "inserted": 85
+}
+```
+
+### No Videos Found
+
+```json
+{
+  "success": true,
+  "fetched": 0,
+  "inserted": 0,
+  "info": "No YouTube videos found for this topic"
+}
+```
+
+### API Error Response
+
+```json
+{
+  "success": false,
+  "fetched": 0,
+  "inserted": 0,
+  "info": "YouTube API returned 403"
+}
+```
+
+### Exception Response
+
+```json
+{
+  "success": false,
+  "fetched": 0,
+  "inserted": 0,
+  "error": "Invalid API key"
+}
+```
+
+## API Workflow
+
+### Step 1: Video Search
+
+Searches for videos matching the topic query:
+
+```typescript
+const searchUrl = new URL('https://www.googleapis.com/youtube/v3/search');
+searchUrl.searchParams.set('part', 'snippet');
+searchUrl.searchParams.set('q', topic.query);
+searchUrl.searchParams.set('type', 'video');
+searchUrl.searchParams.set('maxResults', '5');
+searchUrl.searchParams.set('order', 'date');
+searchUrl.searchParams.set('key', YOUTUBE_API_KEY);
+```
+
+<ParamField query="part" type="string" default="snippet">
+  Requests video metadata (title, description, channel)
+</ParamField>
+
+<ParamField query="type" type="string" default="video">
+  Restricts results to videos only (excludes playlists, channels)
+</ParamField>
+
+<ParamField query="maxResults" type="number" default="5">
+  Number of videos to retrieve (max 50 per API limits)
+</ParamField>
+
+<ParamField query="order" type="string" default="date">
+  Sorts by upload date (newest first)
+</ParamField>
+
+**Quota Cost**: 100 units per search request
+
+### Step 2: Comment Extraction
+
+For each video, fetches top-level comments:
+
+```typescript
+const commentsUrl = new URL(
+  'https://www.googleapis.com/youtube/v3/commentThreads'
+);
+commentsUrl.searchParams.set('part', 'snippet');
+commentsUrl.searchParams.set('videoId', videoId);
+commentsUrl.searchParams.set('maxResults', '20');
+commentsUrl.searchParams.set('order', 'relevance');
+commentsUrl.searchParams.set('key', YOUTUBE_API_KEY);
+```
+
+<ParamField query="maxResults" type="number" default="20">
+  Number of comments per video (max 100 per API limits)
+</ParamField>
+
+<ParamField query="order" type="string" default="relevance">
+  Sorts by YouTube's relevance algorithm (prioritizes engagement)
+</ParamField>
+
+**Quota Cost**: 1 unit per comment thread request
+
+**Total Comments**: Up to 100 comments (5 videos × 20 comments)
+
+## Comment Schema
+
+Extracted comments are stored in the `posts` table:
+
+```typescript
+interface YouTubeComment {
+  topic_id: string;              // UUID reference
+  platform: 'youtube';           // Always "youtube"
+  external_id: string;           // YouTube comment ID
+  author: string;                // Channel name or "Anonymous"
+  content: string;               // Comment text (HTML stripped)
+  posted_at: string;             // ISO 8601 timestamp from YouTube
+}
+```
+
+### HTML Stripping
+
+YouTube comments may contain HTML tags (links, formatting). These are stripped:
+
+```typescript
+content: snippet.textDisplay?.replace(/<[^>]*>/g, '') || ''
+```
+
+**Before**: `Check out my channel <a href="...">here</a>!`  
+**After**: `Check out my channel here!`
+
+## Deduplication
+
+Comments are upserted using the composite unique constraint:
+
+```typescript
+await supabase.from('posts').upsert(commentData, {
+  onConflict: 'platform,external_id'
+});
+```
+
+This prevents duplicate comments if the function is called multiple times for the same topic.
+
+## Error Handling
+
+<Warning>
+This function returns HTTP 200 with `success: false` for API errors to allow graceful orchestrator continuation.
+</Warning>
+
+### Common API Errors
+
+| Error | Cause | Response |
+|-------|-------|----------|
+| HTTP 403 | Invalid/expired API key or quota exceeded | `info: "YouTube API returned 403"` |
+| HTTP 400 | Invalid video ID or parameter | Function skips video, continues |
+| HTTP 404 | Video deleted or private | Function skips video, continues |
+| Disabled comments | Video has comments disabled | Function skips video, continues |
+
+### Graceful Degradation
+
+If some videos fail to fetch comments, the function continues with remaining videos:
+
+```typescript
+for (const videoId of videoIds) {
+  const commentsResponse = await fetch(commentsUrl);
+  if (!commentsResponse.ok) {
+    console.error(`Comments fetch failed for video ${videoId}`);
+    await commentsResponse.text(); // consume body
+    continue; // Skip to next video
+  }
+  // Process comments...
+}
+```
+
+## Performance
+
+**Typical execution time**: 4-8 seconds
+
+- Video search: ~1-2s
+- Comment fetching (5 videos): ~3-6s
+- Database inserts: &lt;1s
+
+**Fast path** (cached results): ~3-4s  
+**Slow path** (many comments): ~8-12s
+
+## Rate Limits
+
+<Warning>
+**YouTube Data API v3 Quota**:
+- Default daily quota: **10,000 units**
+- Search request: **100 units**
+- Comment thread request: **1 unit**
+
+**Per function call**:
+- 1 search (100 units) + 5 comment requests (5 units) = **105 units**
+- Daily limit: ~95 calls per day
+- Hourly limit: ~4 calls per hour
+</Warning>
+
+### Quota Exceeded Response
+
+When quota is exhausted, YouTube returns HTTP 403:
+
+```json
+{
+  "error": {
+    "code": 403,
+    "message": "The request cannot be completed because you have exceeded your quota.",
+    "errors": [{
+      "domain": "youtube.quota",
+      "reason": "quotaExceeded"
+    }]
+  }
+}
+```
+
+The function will return:
+
+```json
+{
+  "success": false,
+  "fetched": 0,
+  "inserted": 0,
+  "info": "YouTube API returned 403"
+}
+```
+
+## Environment Variables
+
+<ParamField body="YOUTUBE_API_KEY" type="string" required>
+  YouTube Data API v3 key from Google Cloud Console. Create one at https://console.cloud.google.com/apis/credentials
+</ParamField>
+
+<ParamField body="SUPABASE_URL" type="string" required>
+  Auto-injected by Supabase
+</ParamField>
+
+<ParamField body="SUPABASE_SERVICE_ROLE_KEY" type="string" required>
+  Auto-injected by Supabase
+</ParamField>
+
+## Best Practices
+
+<Check>Monitor YouTube API quota usage in Google Cloud Console</Check>
+
+<Check>Increase `maxResults` for videos/comments if you need more data (costs more quota)</Check>
+
+<Check>Use `order=relevance` for comments to get higher quality sentiment data</Check>
+
+<Check>Consider increasing video search to 10-15 results for broader coverage</Check>
+
+<Check>Handle `success: false` gracefully - YouTube is a supplementary data source</Check>
+
+## Quota Optimization
+
+To maximize data within quota limits:
+
+```typescript
+// Option 1: More videos, fewer comments per video
+maxResults: '10'  // videos
+maxResults: '10'  // comments per video
+// Total: 100 + (10 × 1) = 110 units, ~100 comments
+
+// Option 2: Fewer videos, more comments per video
+maxResults: '3'   // videos
+maxResults: '50'  // comments per video
+// Total: 100 + (3 × 1) = 103 units, ~150 comments
+```
+
+<Note>
+The current implementation uses **Option 1** (5 videos × 20 comments = 100 comments).
+</Note>
+
+## Related Functions
+
+- [analyze-topic](/edge-functions/analyze-topic) - Orchestrator calling this function
+- [fetch-twitter](/edge-functions/fetch-twitter) - Uses YouTube as a tertiary fallback
+- [analyze-sentiment](/edge-functions/analyze-sentiment) - Processes collected YouTube comments

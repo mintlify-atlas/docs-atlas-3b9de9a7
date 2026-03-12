@@ -1,0 +1,341 @@
+---
+title: fetch-reddit
+description: Scrapes Reddit discussions and comments using Scrape.do HTML parsing
+---
+
+## Overview
+
+The `fetch-reddit` function collects Reddit posts and discussions related to a topic by scraping rendered HTML from Reddit search results. It uses multiple parsing strategies to extract post titles and body text from both new and old Reddit designs.
+
+## Endpoint
+
+```
+POST https://your-project.supabase.co/functions/v1/fetch-reddit
+```
+
+<Note>
+This function is designed to be called internally by the `analyze-topic` orchestrator.
+</Note>
+
+## Request
+
+<ParamField body="topic_id" type="string" required>
+  UUID of the topic to fetch Reddit posts for
+</ParamField>
+
+### Example Request
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://your-project.supabase.co/functions/v1/fetch-reddit \
+  -H "Authorization: Bearer YOUR_SERVICE_ROLE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"topic_id": "a3f5e8b1-4c2d-4e9f-8a1b-3c5d6e7f8a9b"}'
+```
+
+```typescript TypeScript (Internal)
+const redditRes = await fetch(
+  `${supabaseUrl}/functions/v1/fetch-reddit`,
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${supabaseServiceKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ topic_id: topicId })
+  }
+);
+```
+</CodeGroup>
+
+## Response
+
+<ResponseField name="success" type="boolean" required>
+  Whether Reddit posts were successfully scraped and stored
+</ResponseField>
+
+<ResponseField name="fetched" type="number" required>
+  Number of posts extracted from Reddit HTML
+</ResponseField>
+
+<ResponseField name="inserted" type="number" required>
+  Number of posts successfully inserted into database
+</ResponseField>
+
+<ResponseField name="info" type="string" required>
+  Description of the result (e.g., "Scrape.do (Reddit)", "Reddit unavailable: quota")
+</ResponseField>
+
+<ResponseField name="scrape_status" type="string" required>
+  Status code: "ok" | "blocked" | "quota" | "no_token" | "error"
+</ResponseField>
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "fetched": 18,
+  "inserted": 17,
+  "info": "Scrape.do (Reddit)",
+  "scrape_status": "ok"
+}
+```
+
+### Quota Exceeded Response
+
+```json
+{
+  "success": false,
+  "fetched": 0,
+  "inserted": 0,
+  "info": "Reddit unavailable: quota",
+  "scrape_status": "quota"
+}
+```
+
+### Bot Detection Response
+
+```json
+{
+  "success": false,
+  "fetched": 0,
+  "inserted": 0,
+  "info": "Reddit unavailable: blocked",
+  "scrape_status": "blocked"
+}
+```
+
+### Error Response
+
+```json
+{
+  "success": false,
+  "error": "Topic not found"
+}
+```
+
+## Scraping Strategy
+
+### Target URL
+
+Searches Reddit's global search sorted by newest:
+
+```typescript
+const redditUrl = `https://www.reddit.com/search/?q=${encodeURIComponent(topic.query)}&sort=new`;
+```
+
+### Scrape.do Configuration
+
+```typescript
+const scrapeUrl = buildScrapeDoUrl(SCRAPE_DO_TOKEN, redditUrl, {
+  render: true,
+  super: true,
+  waitUntil: 'networkidle0',
+  geoCode: 'us'
+});
+```
+
+<ParamField body="render" type="boolean" default="true">
+  Enables JavaScript rendering for dynamic content
+</ParamField>
+
+<ParamField body="super" type="boolean" default="true">
+  Uses premium proxy pool for better success rate
+</ParamField>
+
+<ParamField body="waitUntil" type="string" default="networkidle0">
+  Waits for all network requests to finish before capturing HTML
+</ParamField>
+
+<ParamField body="geoCode" type="string" default="us">
+  Routes request through US-based proxy servers
+</ParamField>
+
+## HTML Parsing Strategies
+
+The function uses **4 cascading strategies** to handle different Reddit layouts:
+
+### Strategy 1: Web Component Attributes
+
+**Target**: New Reddit design using `<shreddit-post>` custom elements
+
+```typescript
+const shredditRe = /post-title="([^"]{20,300})"/gi;
+```
+
+**Extracts**: Post titles from the `post-title` attribute
+
+**Yield**: 0-20 posts
+
+### Strategy 2: H3 Headings
+
+**Target**: Classic Reddit or mobile fallback
+
+```typescript
+const h3Re = /<h3[^>]*>([\s\S]{20,300}?)<\/h3>/gi;
+```
+
+**Extracts**: Post titles from `<h3>` heading tags
+
+**Activation**: Only if Strategy 1 finds &lt;3 posts
+
+**Yield**: 0-20 posts
+
+### Strategy 3: Paragraph Snippets
+
+**Target**: Post body previews and comments
+
+```typescript
+const pRe = /<p[^>]*>([\s\S]{30,300}?)<\/p>/gi;
+```
+
+**Extracts**: Text from `<p>` elements (minimum 30 characters)
+
+**Activation**: Only if Strategies 1+2 find &lt;5 posts combined
+
+**Yield**: 0-20 posts
+
+### Strategy 4: Generic Sentence Extraction
+
+**Target**: Any text content in the page
+
+**Method**: Strips all HTML and extracts sentences
+
+```typescript
+const sentences = extractSentences(plainText, 30, 300);
+```
+
+**Filters**:
+- Minimum length: 30 characters
+- Maximum length: 300 characters
+- Excludes URLs, mentions, hashtags, timestamps
+
+**Activation**: Only if Strategies 1-3 find &lt;5 posts combined
+
+**Yield**: 0-20 posts
+
+## Bot Detection
+
+The function detects Reddit's anti-bot measures:
+
+```typescript
+if (
+  html.includes('Are you a human?') || 
+  (!html.toLowerCase().includes('reddit') && html.length < 5000)
+) {
+  scrapeStatus = 'blocked';
+}
+```
+
+## Post Schema
+
+Extracted posts are stored in the `posts` table:
+
+```typescript
+interface RedditPost {
+  topic_id: string;           // UUID reference
+  platform: 'reddit';         // Always "reddit"
+  external_id: string;        // e.g., "reddit_scrape_abc_0"
+  author: '@reddit_user';     // Generic placeholder
+  content: string;            // Post title or body text
+  posted_at: string;          // Current timestamp (ISO 8601)
+}
+```
+
+<Warning>
+**Limitation**: The current implementation does not extract individual post IDs, timestamps, or author usernames from the HTML. All posts are attributed to `@reddit_user` and timestamped at scrape time.
+</Warning>
+
+## Deduplication
+
+Posts are upserted using the `platform,external_id` composite key:
+
+```typescript
+await supabase.from('posts').upsert(postData, {
+  onConflict: 'platform,external_id'
+});
+```
+
+## Error Handling
+
+### Scrape Status Codes
+
+| Status | HTTP Code | Meaning | Action |
+|--------|-----------|---------|--------|
+| `ok` | 200 | Successfully scraped | Data inserted |
+| `blocked` | 403/407 | Reddit bot detection triggered | Returns 0 posts |
+| `quota` | 402/429 | Scrape.do API quota exceeded | Returns 0 posts |
+| `no_token` | - | Missing `SCRAPE_DO_TOKEN` | Skips scraping |
+| `error` | Other | Network/parsing error | Returns 0 posts |
+
+<Note>
+All status codes return HTTP 200 with `success: false` to allow graceful orchestrator continuation.
+</Note>
+
+## Performance
+
+**Typical execution time**: 6-12 seconds
+
+- Fast path (cached/simple page): ~6-8s
+- Rendered JavaScript: ~10-12s
+- Bot detection retry: ~15-20s (usually fails)
+
+## Rate Limits
+
+<Warning>
+**Scrape.do Rate Limits**:
+- Free tier: ~1,000 requests/month
+- Starter: ~10,000 requests/month
+- Growth: ~50,000 requests/month
+
+Each call to this function consumes **1 Scrape.do request**.
+</Warning>
+
+**Reddit Rate Limits** (handled by Scrape.do):
+- Aggressive bot detection
+- IP-based throttling
+- CAPTCHA challenges
+
+## Environment Variables
+
+<ParamField body="SCRAPE_DO_TOKEN" type="string" required>
+  API token from Scrape.do dashboard. Get one at https://scrape.do
+</ParamField>
+
+<ParamField body="SUPABASE_URL" type="string" required>
+  Auto-injected by Supabase
+</ParamField>
+
+<ParamField body="SUPABASE_SERVICE_ROLE_KEY" type="string" required>
+  Auto-injected by Supabase
+</ParamField>
+
+## Best Practices
+
+<Check>Monitor `scrape_status` to detect quota exhaustion early</Check>
+
+<Check>Combine with `fetch-twitter` for broader coverage (it also scrapes Reddit)</Check>
+
+<Check>Expect `blocked` status frequently - Reddit has aggressive anti-scraping</Check>
+
+<Check>Consider the Parallel AI fallback in `fetch-twitter` as an alternative Reddit source</Check>
+
+## Limitations
+
+<Warning>
+**Current Limitations**:
+- No individual post IDs extracted
+- No author usernames extracted
+- No original timestamps extracted
+- All posts share generic metadata
+- No comment threads extracted (only top-level posts)
+</Warning>
+
+These limitations are due to Reddit's dynamic rendering and frequent HTML structure changes.
+
+## Related Functions
+
+- [analyze-topic](/edge-functions/analyze-topic) - Orchestrator calling this function
+- [fetch-twitter](/edge-functions/fetch-twitter) - Also scrapes Reddit as a secondary source
+- [analyze-sentiment](/edge-functions/analyze-sentiment) - Processes collected Reddit posts

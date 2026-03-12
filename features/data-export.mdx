@@ -1,0 +1,445 @@
+---
+title: Data Export & Reporting
+description: Export sentiment analysis data as CSV or PDF reports for stakeholder briefings, compliance, and long-term archival
+---
+
+## Overview
+
+SENTi-radar's export feature allows you to download comprehensive sentiment reports in two formats:
+- **CSV**: Raw data for analysis in Excel, Google Sheets, or BI tools
+- **PDF**: Formatted reports for presentations, stakeholder briefings, and documentation
+
+Both formats include topics, emotion breakdowns, sentiment timelines, and live feed data.
+
+## How to Export
+
+<Steps>
+  <Step title="Navigate to Dashboard">
+    Open the main SENTi-radar dashboard where all trending topics are displayed.
+  </Step>
+  
+  <Step title="Click Export Button">
+    In the dashboard header, click the **"Export"** dropdown button.
+  </Step>
+  
+  <Step title="Select Format">
+    Choose either:
+    - **Export as CSV** (data analysis)
+    - **Export as PDF** (presentations)
+  </Step>
+  
+  <Step title="Download File">
+    The file downloads automatically with a timestamped filename:
+    - `sentiment-report-2026-03-12.csv`
+    - `sentiment-report-2026-03-12.pdf`
+  </Step>
+</Steps>
+
+<Info>
+Exports capture a snapshot of the current dashboard state. For automated exports, use [Scheduled Monitoring](/features/scheduled-monitoring).
+</Info>
+
+## Export Menu Component
+
+The export menu uses a popover dropdown:
+
+```tsx
+// Source: ExportMenu.tsx (lines 47-72)
+<Popover open={open} onOpenChange={setOpen}>
+  <PopoverTrigger asChild>
+    <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+      <Download className="h-3.5 w-3.5" />
+      Export
+    </Button>
+  </PopoverTrigger>
+  <PopoverContent className="w-48 p-2" align="end">
+    <button onClick={() => handleExport('csv')}>
+      <FileSpreadsheet className="h-4 w-4 text-primary" />
+      Export as CSV
+    </button>
+    <button onClick={() => handleExport('pdf')}>
+      <FileText className="h-4 w-4 text-primary" />
+      Export as PDF
+    </button>
+  </PopoverContent>
+</Popover>
+```
+
+## CSV Export Format
+
+CSV exports use a structured, multi-section format:
+
+### Section 1: Dashboard Summary
+
+```csv
+=== Dashboard Summary ===
+Metric,Value
+Posts Analyzed,12450
+Active Topics,4
+Active Alerts,2
+```
+
+**Use case**: High-level KPIs for executive dashboards.
+
+### Section 2: Topics Overview
+
+```csv
+=== Topics ===
+Title,Hashtag,Sentiment,Volume,Change %,Crisis Level,Volatility,Summary
+AI Regulation Debate,#AIRegulation,mixed,284500,42,medium,72,"35% fear, 28% anger → Main concerns: job displacement (48%), lack of oversight (31%)"
+Climate Summit 2026,#ClimateSummit2026,negative,192300,-15,high,85,"42% anger, 25% sadness → Key frustrations: broken promises (55%), insufficient targets (30%)"
+```
+
+**Fields**:
+- **Title**: Topic name
+- **Hashtag**: Social media tracking tag
+- **Sentiment**: positive / negative / mixed
+- **Volume**: Total mentions
+- **Change %**: Percentage change from previous hour
+- **Crisis Level**: none / low / medium / high
+- **Volatility**: 0-100 stability score
+- **Summary**: AI-generated or keyword-based summary
+
+### Section 3: Emotion Breakdown
+
+```csv
+=== Emotion Breakdown ===
+Topic,Emotion,Percentage,Count
+AI Regulation Debate,fear,35,99575
+AI Regulation Debate,anger,28,79660
+AI Regulation Debate,surprise,18,51210
+Climate Summit 2026,anger,42,80766
+Climate Summit 2026,sadness,25,48075
+```
+
+**Use case**: 
+- Emotion trend analysis
+- Pivot tables showing emotion distribution across topics
+- Time-series analysis (if combined with historical exports)
+
+### Section 4: Sentiment Timeline
+
+```csv
+=== Sentiment Timeline ===
+Time,Positive %,Negative %,Neutral %,Volume
+14:00,42,38,20,8500
+15:00,45,35,20,9200
+16:00,48,32,20,11400
+17:00,44,40,16,15600
+```
+
+**Use case**: Chart sentiment evolution in BI tools (Tableau, Power BI, Google Data Studio).
+
+### Section 5: Live Feed
+
+```csv
+=== Live Feed ===
+Platform,User,Emotion,Time,Text
+X,@techinsider,anger,2m ago,"The AI regulation debate is heating up. Both sides make valid points but we need action NOW. #AIRegulation"
+YouTube,TechReviewer,joy,5m ago,"Hands-on with iPhone 18 holographic display - this changes everything! Link in bio 🔥"
+```
+
+**Use case**: Qualitative analysis, sentiment validation, customer quote mining.
+
+## CSV Implementation
+
+The CSV export uses a custom escaping function to handle commas, quotes, and newlines:
+
+```typescript
+// Source: exportUtils.ts (lines 28-34)
+function escapeCSV(val: string | number): string {
+  const s = String(val);
+  if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+```
+
+**Examples**:
+- `"job displacement"` → `"job displacement"` (no escaping needed)
+- `"Can't afford groceries, rent rising"` → `""Can't afford groceries, rent rising""` (comma → wrapped in quotes)
+- `"She said "crisis""` → `""She said ""crisis""""` (nested quotes escaped)
+
+<Note>
+This follows RFC 4180 CSV standard, ensuring compatibility with Excel, Google Sheets, and data analysis tools.
+</Note>
+
+## PDF Export Format
+
+PDF exports use `jsPDF` and `jsPDF-autoTable` for professional formatting:
+
+### Page 1: Dashboard Summary + Topics
+
+**Header**:
+```
+Sentiment Analysis Report
+Generated: March 12, 2026, 2:30 PM
+```
+
+**Dashboard Summary Table**:
+| Metric | Value |
+|--------|-------|
+| Posts Analyzed | 12,450 |
+| Active Topics | 4 |
+| Active Alerts | 2 |
+
+**Topics Overview Table**:
+| Title | Hashtag | Sentiment | Volume | Change | Crisis | Volatility |
+|-------|---------|-----------|--------|--------|--------|------------|
+| AI Regulation Debate | #AIRegulation | mixed | 284500 | +42% | medium | 72 |
+| Climate Summit 2026 | #ClimateSummit2026 | negative | 192300 | -15% | high | 85 |
+
+### Page 2: Emotion Breakdown
+
+**Emotion Breakdown Table**:
+| Topic | Emotion | Percentage | Count |
+|-------|---------|------------|-------|
+| AI Regulation Debate | fear | 35% | 99,575 |
+| AI Regulation Debate | anger | 28% | 79,660 |
+| Climate Summit 2026 | anger | 42% | 80,766 |
+
+### Page 3+: AI Summaries
+
+**Per-topic summaries** with color-coded headers:
+
+```
+AI Regulation Debate (#AIRegulation)
+
+35% fear, 28% anger → Main concerns: job displacement (48% mentions),
+lack of oversight (31%), corporate monopoly (15%). Supporters cite
+innovation benefits and safety improvements.
+
+Key Takeaways:
+• "We need guardrails, not roadblocks" — most repeated sentiment
+• Tech workers express 3x more fear than general public
+• EU regulation praised as template; US approach criticized
+```
+
+## PDF Styling
+
+```typescript
+// Source: exportUtils.ts (lines 101-151)
+const doc = new jsPDF({ orientation: 'landscape' });
+
+// Title
+doc.setFontSize(20);
+doc.setTextColor(30, 30, 30);
+doc.text('Sentiment Analysis Report', 14, 20);
+
+// Tables
+autoTable(doc, {
+  head: [['Title', 'Hashtag', 'Sentiment', 'Volume', 'Change', 'Crisis', 'Volatility']],
+  body: data.topics.map((t) => [
+    t.title,
+    t.hashtag,
+    t.sentiment,
+    String(t.volume),
+    `${t.change > 0 ? '+' : ''}${t.change}%`,
+    t.crisisLevel,
+    String(t.volatility)
+  ]),
+  theme: 'striped',
+  headStyles: { fillColor: [79, 70, 229] },  // Primary brand color
+  margin: { left: 14, right: 14 },
+  styles: { fontSize: 9 }
+});
+```
+
+<Info>
+The PDF uses landscape orientation to fit wide tables (topics, emotions) without wrapping.
+</Info>
+
+## Export Data Source
+
+The export pulls data from the live dashboard state:
+
+```typescript
+// Source: ExportMenu.tsx (lines 21-30)
+const getExportData = () => {
+  const topics = dbTopics && dbTopics.length > 0 
+    ? dbTopics        // Use Supabase data if available
+    : trendingTopics; // Fall back to mock data
+  
+  const timelineData = timeline && timeline.length > 0 
+    ? timeline 
+    : generateTrendData(24);
+  
+  return {
+    topics,
+    timeline: timelineData,
+    feed: feed || [],
+    stats: stats || { postCount: 0, topicCount: 0, alertCount: 0 }
+  };
+};
+```
+
+**Data sources**:
+1. **Supabase realtime data** (if connected)
+2. **Mock data** (fallback for demo/offline mode)
+
+<Note>
+Exports reflect the **current dashboard state**. If you refresh the dashboard or switch topics before exporting, the export will capture the new state.
+</Note>
+
+## Use Cases
+
+### Stakeholder Briefings
+
+**Scenario**: Weekly executive briefing on brand health
+
+**Process**:
+1. Generate sentiment data for the week
+2. Export as PDF
+3. Present in board meetings or attach to emails
+
+**Why PDF**: Clean, professional formatting suitable for non-technical audiences.
+
+### Compliance & Archival
+
+**Scenario**: Regulatory requirement to archive social media monitoring data
+
+**Process**:
+1. Schedule daily CSV exports via webhook
+2. Store in S3/Google Cloud Storage
+3. Retain for 7 years per compliance policy
+
+**Why CSV**: Raw data format, easy to query, no proprietary dependencies.
+
+### BI Tool Integration
+
+**Scenario**: Visualize sentiment trends in Tableau or Power BI
+
+**Process**:
+1. Export CSV daily
+2. Automate upload to data warehouse (Snowflake, BigQuery)
+3. Build dashboards showing:
+   - Emotion trends over time
+   - Topic correlation analysis
+   - Crisis frequency heatmaps
+
+**Why CSV**: Structured format compatible with all BI tools.
+
+### Marketing Campaign Analysis
+
+**Scenario**: Post-campaign report for product launch
+
+**Process**:
+1. Monitor product hashtag for 2 weeks
+2. Export CSV at campaign end
+3. Analyze:
+   - Peak sentiment days
+   - Most common emotions
+   - Top positive/negative phrases
+4. Create deck with findings
+
+**Why CSV + PDF**: CSV for data analysis, PDF for final report.
+
+## Advanced: Webhook-Based Exports
+
+For automated exports, combine with Scheduled Monitoring:
+
+```typescript
+// Webhook payload includes export URLs
+{
+  "event": "scheduled_report",
+  "topic": "AI Regulation",
+  "export_urls": {
+    "csv": "https://cdn.senti-radar.com/exports/ai-regulation-2026-03-12.csv",
+    "pdf": "https://cdn.senti-radar.com/exports/ai-regulation-2026-03-12.pdf"
+  },
+  "summary": { ... }
+}
+```
+
+Your system can:
+1. Receive webhook
+2. Download CSV from `export_urls.csv`
+3. Store in your data warehouse
+4. Trigger downstream workflows (Slack notifications, JIRA tickets)
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Export Regularly" icon="calendar">
+    Set up weekly exports for historical trend analysis. SENTi-radar doesn't retain historical data by default—exports are your archive.
+  </Card>
+  
+  <Card title="Use CSV for Analysis, PDF for Sharing" icon="file-text">
+    CSV is machine-readable (Excel, Python). PDF is human-readable (presentations, emails).
+  </Card>
+  
+  <Card title="Timestamp Your Files" icon="clock">
+    The auto-generated filename includes the date (`sentiment-report-2026-03-12.csv`). Keep this naming convention for easy sorting.
+  </Card>
+  
+  <Card title="Combine with AI Insights" icon="sparkles">
+    Export captures raw data, but AI Insights provide context. Generate an AI report before exporting for complete documentation.
+  </Card>
+</CardGroup>
+
+## Limitations
+
+<Note>
+**No historical data**: Exports only capture the current dashboard state. If you want to compare Feb vs March sentiment, you must export at the end of each month.
+
+**Single-topic exports not supported**: The export button captures **all** dashboard topics. For single-topic reports, use the Topic Detail panel's print function (browser print → Save as PDF).
+
+**File size limits**: Large exports (100+ topics, 10K+ feed items) may take 10-20 seconds to generate. The browser may prompt for download location.
+</Note>
+
+## Troubleshooting
+
+### CSV Opens Incorrectly in Excel
+
+**Symptom**: Text appears in a single column or with broken formatting.
+
+**Fix**:
+1. Open Excel
+2. Go to **Data → From Text/CSV**
+3. Select the downloaded CSV
+4. Choose **UTF-8** encoding
+5. Set delimiter to **Comma**
+
+### PDF Tables Cut Off
+
+**Symptom**: Wide tables are truncated or overlap.
+
+**Fix**: The PDF uses landscape orientation by default. If tables still overflow:
+1. Edit `exportUtils.ts`
+2. Reduce font size: `styles: { fontSize: 8 }` (line 150)
+3. Or hide less critical columns (e.g., Volatility)
+
+### Export Button Grayed Out
+
+**Symptom**: Export button is disabled.
+
+**Cause**: No data loaded (empty dashboard).
+
+**Fix**: Wait for topics to load or check API connectivity.
+
+## File Format Specifications
+
+### CSV Encoding
+
+- **Character encoding**: UTF-8 (supports emojis, international characters)
+- **Line endings**: `\n` (Unix-style)
+- **Delimiter**: Comma (`,`)
+- **Quote character**: Double quote (`"`)
+- **Escape sequence**: Double-double quote (`""` for literal `"`)
+
+### PDF Specifications
+
+- **Page size**: A4 landscape (297mm × 210mm)
+- **Margins**: 14mm left/right, 20mm top, 10mm bottom
+- **Font**: Helvetica (jsPDF default)
+- **Color scheme**: 
+  - Headers: RGB(79, 70, 229) — Brand primary
+  - Text: RGB(30, 30, 30) — Near-black
+  - Metadata: RGB(120, 120, 120) — Gray
+
+## Related Features
+
+- [Scheduled Monitoring](/features/scheduled-monitoring) - Automate exports via email, Slack, or webhook
+- [AI Insights](/features/ai-insights) - Generate strategic summaries to include in PDF exports
+- [Sentiment Analysis](/features/sentiment-analysis) - Core data that populates export files

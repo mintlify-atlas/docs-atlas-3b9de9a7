@@ -1,0 +1,648 @@
+---
+title: Adding Data Sources
+description: Configure API keys and tokens to enable live data from X (Twitter), Reddit, YouTube, Google News, and AI summarization services
+---
+
+## Overview
+
+SENTi-radar aggregates sentiment data from multiple sources to provide comprehensive analysis. This guide walks you through configuring each data source by setting up API keys and tokens in your environment variables.
+
+<Note>
+  All API keys are **optional**. SENTi-radar will work with whatever sources you configure and fall back gracefully to available data.
+</Note>
+
+## Environment Setup
+
+All API keys are configured in a `.env` file at the root of your project.
+
+<Steps>
+  <Step title="Create .env file">
+    If you don't already have a `.env` file, create one in your project root:
+    
+    ```bash
+    touch .env
+    ```
+  </Step>
+
+  <Step title="Add API keys">
+    Open `.env` in your text editor and add keys in the format:
+    
+    ```bash
+    VITE_SCRAPE_TOKEN=your_scrape_do_token_here
+    VITE_YOUTUBE_API_KEY=your_youtube_api_key_here
+    VITE_GEMINI_API_KEY=your_gemini_api_key_here
+    VITE_GROQ_API_KEY=your_groq_api_key_here
+    ```
+    
+    <Tip>
+      The `VITE_` prefix makes these variables accessible in the browser via `import.meta.env`. Never commit `.env` to version control!
+    </Tip>
+  </Step>
+
+  <Step title="Restart dev server">
+    After adding or changing keys, restart your development server:
+    
+    ```bash
+    npm run dev
+    # or
+    yarn dev
+    ```
+    
+    Changes to `.env` require a full restart to take effect.
+  </Step>
+</Steps>
+
+## Data Source: X (Twitter) via Scrape.do
+
+### What It Provides
+
+Live posts from X.com search results using the "Latest" filter (real-time tweets, not algorithmic).
+
+### Setup Instructions
+
+<Steps>
+  <Step title="Sign up for Scrape.do">
+    Visit [scrape.do](https://scrape.do) and create an account.
+    
+    **Pricing** (as of 2026):
+    - Free tier: 1,000 requests/month
+    - Starter: $29/month for 20,000 requests
+    - Professional: $99/month for 100,000 requests
+    
+    <Note>
+      Each topic analysis uses 1-2 requests (one for X, one for Reddit). The free tier is enough for ~500 topic analyses per month.
+    </Note>
+  </Step>
+
+  <Step title="Get your API token">
+    After signing up:
+    1. Navigate to your dashboard
+    2. Click "API Tokens" in the sidebar
+    3. Copy your token (starts with `scrape_...`)
+  </Step>
+
+  <Step title="Add to .env">
+    ```bash
+    VITE_SCRAPE_TOKEN=scrape_live_1a2b3c4d5e6f7g8h9i0j
+    ```
+  </Step>
+
+  <Step title="Verify setup">
+    Analyze any topic and check the data source badges. You should see:
+    
+    ✓ **X via Scrape.do** (green badge) - Posts fetched successfully
+    
+    If you see a gray badge or error, check:
+    - Token is correct (no extra spaces)
+    - Quota not exceeded (check Scrape.do dashboard)
+    - `.env` file is in project root
+    - Dev server was restarted after adding the key
+  </Step>
+</Steps>
+
+### How It Works
+
+The `fetchXPosts()` function in `src/services/scrapeDoProvider.ts` performs:
+
+```typescript
+export async function fetchXPosts(
+  query: string,
+  token: string,
+  options: ScrapeDoOptions = {}
+): Promise<ScrapeDoResult> {
+  const targetUrl = `https://x.com/search?q=${encodeURIComponent(
+    query
+  )}&src=typed_query&f=live`;
+  
+  const apiUrl = buildApiUrl(token, targetUrl, {
+    render: true,           // Enable JavaScript rendering
+    waitUntil: 'networkidle0', // Wait until network is idle
+    ...options,
+  });
+  
+  const res = await fetch(apiUrl);
+  const html = await res.text();
+  const posts = parseXHtml(html, query);
+  
+  return { posts, source: 'X via Scrape.do', status: 'success' };
+}
+```
+
+**Key features**:
+- **JavaScript rendering**: X is a React SPA; Scrape.do renders it fully before scraping
+- **networkidle0 wait**: Ensures tweets are loaded before capturing HTML
+- **Residential proxies**: Bypasses X's datacenter IP blocks (when `super: true`)
+- **Parsing strategy**: Extracts `<article data-testid="tweet">` elements and `<div data-testid="tweetText">` content
+
+<Accordion title="X parsing implementation">
+  ```typescript
+  export function parseXHtml(html: string, query: string): ScrapedPost[] {
+    const posts: ScrapedPost[] = [];
+    
+    // Strategy 1: Tweet article elements
+    const articleRe = /<article[^>]*data-testid="tweet"[^>]*>([\s\S]*?)<\/article>/gi;
+    let m: RegExpExecArray | null;
+    
+    while ((m = articleRe.exec(html)) !== null && posts.length < 20) {
+      const articleHtml = m[1];
+      const textMatch = articleHtml.match(
+        /data-testid="tweetText"[^>]*>([\s\S]*?)<\/div>/i
+      );
+      const userMatch = articleHtml.match(
+        /data-testid="User-Name"[\s\S]*?<span[^>]*>(@[\w]+)<\/span>/i
+      );
+      
+      if (textMatch) {
+        const text = decodeEntities(stripTags(textMatch[1]));
+        if (text.length > 10 && text.length < 600) {
+          posts.push({
+            id: `x_${posts.length}`,
+            text,
+            author: userMatch?.[1] ?? '@x_user',
+            platform: 'x',
+            url: `https://x.com/search?q=${encodeURIComponent(query)}`,
+            postedAt: new Date().toISOString(),
+          });
+        }
+      }
+    }
+    
+    return posts;
+  }
+  ```
+  
+  Fallback strategy uses `<span lang="en">` elements if article parsing fails.
+</Accordion>
+
+### Troubleshooting X
+
+<Accordion title="'X via Scrape.do' shows as unavailable">
+  **Possible causes**:
+  1. **Quota exceeded**: Check Scrape.do dashboard for usage
+  2. **Login wall**: X is blocking Scrape.do IPs (rare)
+  3. **Invalid token**: Token expired or typo in `.env`
+  
+  **Solutions**:
+  - Wait for monthly quota reset or upgrade plan
+  - Enable premium proxies by setting `super: true` in fetch options
+  - Regenerate token in Scrape.do dashboard
+</Accordion>
+
+## Data Source: Reddit via Scrape.do
+
+### What It Provides
+
+Recent Reddit posts and comments matching your query from `reddit.com/search.json`.
+
+### Setup Instructions
+
+Reddit uses the **same Scrape.do token** as X. Once you've added `VITE_SCRAPE_TOKEN`, Reddit scraping is automatically enabled.
+
+<Steps>
+  <Step title="Verify VITE_SCRAPE_TOKEN is set">
+    Check your `.env` file for:
+    ```bash
+    VITE_SCRAPE_TOKEN=scrape_live_1a2b3c4d5e6f7g8h9i0j
+    ```
+  </Step>
+
+  <Step title="Test Reddit scraping">
+    Analyze any topic. You should see:
+    
+    ✓ **Reddit via Scrape.do** (green badge) - Posts fetched successfully
+  </Step>
+</Steps>
+
+### How It Works
+
+Reddit provides a JSON API at `reddit.com/search.json`, which is easier to parse than HTML:
+
+```typescript
+export async function fetchRedditPosts(
+  query: string,
+  token: string,
+  options: ScrapeDoOptions = {}
+): Promise<ScrapeDoResult> {
+  const targetUrl = `https://www.reddit.com/search.json?q=${encodeURIComponent(
+    query
+  )}&sort=new&limit=25`;
+  
+  const apiUrl = buildApiUrl(token, targetUrl, {
+    render: false, // JSON endpoint, no JS rendering needed
+    ...options,
+  });
+  
+  const res = await fetch(apiUrl);
+  const text = await res.text();
+  const data = JSON.parse(text);
+  const posts = parseRedditJson(data, query);
+  
+  return { posts, source: 'Reddit via Scrape.do', status: 'success' };
+}
+```
+
+**Key differences from X**:
+- **No JavaScript rendering**: Reddit's JSON API is static
+- **Structured data**: Direct access to title, selftext, author, created_utc
+- **Faster**: JSON parsing is quicker than HTML parsing
+
+<Accordion title="Reddit parsing implementation">
+  ```typescript
+  export function parseRedditJson(data: unknown, query: string): ScrapedPost[] {
+    const posts: ScrapedPost[] = [];
+    const record = data as Record<string, unknown>;
+    const dataNode = record?.data as Record<string, unknown> | undefined;
+    const children = (dataNode?.children as Array<Record<string, unknown>>) ?? [];
+    
+    for (const child of children) {
+      const post = child?.data as Record<string, unknown> | undefined;
+      if (!post) continue;
+      
+      const title = (post.title as string) ?? '';
+      const selftext = (post.selftext as string) ?? '';
+      const combined = [title, selftext].filter(Boolean).join('. ');
+      const text = decodeEntities(combined.substring(0, 500));
+      
+      if (text.length > 10) {
+        posts.push({
+          id: `reddit_${post.id ?? posts.length}`,
+          text,
+          author: `u/${(post.author as string) ?? 'redditor'}`,
+          platform: 'reddit',
+          url: (post.url as string) ?? `https://www.reddit.com/search/?q=${encodeURIComponent(query)}`,
+          postedAt: post.created_utc
+            ? new Date((post.created_utc as number) * 1000).toISOString()
+            : new Date().toISOString(),
+        });
+      }
+    }
+    
+    return posts;
+  }
+  ```
+</Accordion>
+
+### Troubleshooting Reddit
+
+<Accordion title="Reddit returns 'Non-JSON' error">
+  Reddit sometimes returns HTML instead of JSON when it detects bots.
+  
+  **Solution**: Enable premium proxies:
+  
+  In `scrapeDoProvider.ts`, modify the fetch call:
+  ```typescript
+  const apiUrl = buildApiUrl(token, targetUrl, {
+    render: false,
+    super: true, // Enable residential proxies
+  });
+  ```
+</Accordion>
+
+## Data Source: YouTube Comments
+
+### What It Provides
+
+- Video titles and descriptions from search results
+- Top-level comments from the 3 most relevant videos (up to 25 comments each)
+
+### Setup Instructions
+
+<Steps>
+  <Step title="Get YouTube Data API v3 key">
+    1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+    2. Create a new project or select existing
+    3. Enable **YouTube Data API v3**:
+       - Navigate to "APIs & Services" > "Library"
+       - Search for "YouTube Data API v3"
+       - Click "Enable"
+    4. Create credentials:
+       - Go to "APIs & Services" > "Credentials"
+       - Click "Create Credentials" > "API Key"
+       - Copy the generated key
+    
+    <Note>
+      YouTube Data API is **free** with a quota of 10,000 units/day. Each topic analysis uses ~100-150 units (enough for 60+ analyses per day).
+    </Note>
+  </Step>
+
+  <Step title="Add to .env">
+    ```bash
+    VITE_YOUTUBE_API_KEY=AIzaSyAaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQq
+    ```
+  </Step>
+
+  <Step title="Verify setup">
+    Analyze a popular topic (e.g., "iPhone"). You should see:
+    - **YouTube** listed in the data source badge
+    - Comment count in the "Live from YouTube + News" attribution
+  </Step>
+</Steps>
+
+### How It Works
+
+The `fetchYouTubeComments()` function performs a two-step process:
+
+```typescript
+async function fetchYouTubeComments(
+  query: string
+): Promise<{ comments: string[]; count: number }> {
+  const comments: string[] = [];
+  
+  // Step 1: Search for top 5 relevant videos
+  const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=id,snippet&q=${encodeURIComponent(
+    query
+  )}&type=video&order=relevance&maxResults=5&key=${YOUTUBE_KEY}`;
+  
+  const searchRes = await fetch(searchUrl);
+  const searchData = await searchRes.json();
+  const videoIds = searchData.items.map(item => item.id.videoId);
+  
+  // Step 2: Fetch comments from top 3 videos
+  for (const videoId of videoIds.slice(0, 3)) {
+    const commentsUrl = `https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${videoId}&order=relevance&maxResults=25&key=${YOUTUBE_KEY}`;
+    
+    const cRes = await fetch(commentsUrl);
+    const cData = await cRes.json();
+    
+    for (const item of cData.items || []) {
+      const text = item.snippet?.topLevelComment?.snippet?.textDisplay || '';
+      if (text.length > 5 && text.length < 500) {
+        comments.push(text);
+      }
+    }
+  }
+  
+  return { comments, count: comments.length };
+}
+```
+
+**What gets analyzed**:
+- Video titles (5 videos)
+- Video descriptions (first 200 chars, 5 videos)
+- Top-level comments (up to 75 total from 3 videos)
+
+<Tip>
+  YouTube comments tend to skew more positive than X/Reddit due to creator fanbase dynamics. Use cross-platform analysis for balanced insights.
+</Tip>
+
+### Troubleshooting YouTube
+
+<Accordion title="YouTube quota exceeded">
+  YouTube Data API has a daily quota of 10,000 units. Each request costs:
+  - Search: 100 units
+  - CommentThreads: 1 unit
+  
+  **Per topic analysis**: ~100-150 units
+  **Daily limit**: ~60-100 topic analyses
+  
+  **Solutions**:
+  - Wait until quota resets (midnight Pacific Time)
+  - Request quota increase in Google Cloud Console
+  - Disable YouTube temporarily by removing `VITE_YOUTUBE_API_KEY`
+</Accordion>
+
+<Accordion title="'Comments disabled' or no comments returned">
+  Some videos have comments disabled. This is normal.
+  
+  **Behavior**: SENTi-radar will still use video titles/descriptions and move to the next video. If all 5 videos have comments disabled, YouTube contributes 0 comments but analysis continues with other sources.
+</Accordion>
+
+## Data Source: Google News RSS
+
+### What It Provides
+
+News headlines from Google News RSS feeds matching your query.
+
+### Setup Instructions
+
+Google News RSS **requires the Scrape.do token** (same as X and Reddit). Once `VITE_SCRAPE_TOKEN` is set, news scraping is automatically enabled.
+
+<Note>
+  No separate API key needed! Google News RSS is a public feed, but Scrape.do helps bypass rate limits and geo-restrictions.
+</Note>
+
+### How It Works
+
+```typescript
+async function fetchNewsHeadlines(query: string): Promise<string[]> {
+  const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(
+    query
+  )}&hl=en&gl=US&ceid=US:en`;
+  
+  const proxyUrl = `https://api.scrape.do?token=${SCRAPE_TOKEN}&url=${encodeURIComponent(
+    rssUrl
+  )}`;
+  
+  const res = await fetch(proxyUrl);
+  const xml = await res.text();
+  
+  // Parse XML for <item><title> elements
+  const items = xml.match(/<item>[\s\S]*?<\/item>/gi) || [];
+  const headlines: string[] = [];
+  
+  for (const item of items) {
+    const m = item.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/);
+    if (m?.[1]) {
+      const clean = m[1].replace(/<[^>]+>/g, '').trim();
+      if (clean.length > 15 && clean.length < 250) {
+        headlines.push(clean);
+      }
+    }
+  }
+  
+  return headlines.slice(0, 10); // Top 10 headlines
+}
+```
+
+**What gets analyzed**:
+- Up to 10 news headlines
+- Headlines are included in emotion scoring and AI summary generation
+
+## AI Summarization Services
+
+SENTi-radar supports two AI providers for generating summaries:
+
+### Gemini 2.0 Flash (Primary)
+
+**Tier**: Primary (tried first)
+
+<Steps>
+  <Step title="Get Gemini API key">
+    1. Visit [Google AI Studio](https://makersuite.google.com/app/apikey)
+    2. Click "Get API Key"
+    3. Create a key for your project
+    4. Copy the key (starts with `AIzaSy...`)
+    
+    **Pricing**: Free tier includes 1,500 requests/day
+  </Step>
+
+  <Step title="Add to .env">
+    ```bash
+    VITE_GEMINI_API_KEY=AIzaSyAaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQq
+    ```
+  </Step>
+</Steps>
+
+**Features**:
+- Streaming responses (word-by-word generation)
+- Fast inference (~3-5 seconds)
+- High-quality, nuanced summaries
+- Free tier is generous for most use cases
+
+### Groq Llama 3.3 70B (Fallback)
+
+**Tier**: Fallback (used if Gemini fails or is not configured)
+
+<Steps>
+  <Step title="Get Groq API key">
+    1. Visit [Groq Console](https://console.groq.com/)
+    2. Sign up or log in
+    3. Navigate to "API Keys"
+    4. Create a new key
+    5. Copy the key (starts with `gsk_...`)
+    
+    **Pricing**: Free tier includes 30 requests/minute
+  </Step>
+
+  <Step title="Add to .env">
+    ```bash
+    VITE_GROQ_API_KEY=gsk_1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t
+    ```
+  </Step>
+</Steps>
+
+**Features**:
+- Extremely fast inference (~1-2 seconds)
+- OpenAI-compatible API
+- Open-source Llama model
+- Great for high-frequency analysis
+
+### AI Fallback Hierarchy
+
+```typescript
+// Tier 1: Gemini
+if (geminiKey) {
+  try {
+    // Stream from Gemini 2.0 Flash
+    return await streamGemini(prompt);
+  } catch (e) {
+    console.warn('Gemini failed:', e);
+  }
+}
+
+// Tier 2: Groq
+if (groqKey) {
+  try {
+    // Stream from Groq Llama 3.3 70B
+    return await streamGroq(prompt);
+  } catch (e) {
+    console.warn('Groq failed:', e);
+  }
+}
+
+// Tier 3: Local (guaranteed, no API needed)
+return buildLocalSummary(analysis);
+```
+
+<Note>
+  Even with no AI keys configured, SENTi-radar generates high-quality summaries using template-based narratives and keyword analysis.
+</Note>
+
+## Security Considerations
+
+<Card title="Client-Side API Keys" icon="shield-alert">
+  **Important**: All keys prefixed with `VITE_` are embedded in the client-side JavaScript bundle and **visible to anyone** who inspects your page source.
+  
+  **For production deployments**, consider:
+  1. Moving Scrape.do calls to **Supabase Edge Functions**
+  2. Storing tokens as **Supabase secrets** (not `VITE_` prefixed)
+  3. Having the frontend call your Edge Functions instead of APIs directly
+  
+  See `TopicDetail.tsx:24-30` for the security warning comment in the codebase.
+</Card>
+
+### Recommended Production Architecture
+
+```
+Frontend (Browser)
+  ↓
+Supabase Edge Function (Server-Side)
+  ↓
+Scrape.do / YouTube / Gemini / Groq
+  ↓
+Return results to frontend
+```
+
+**Benefits**:
+- API keys never exposed to users
+- Rate limiting enforced server-side
+- Usage tracking and logging
+- Can add authentication/authorization
+
+## Data Source Priority
+
+SENTi-radar fetches data from all available sources **in parallel** for speed:
+
+```typescript
+const [ytResult, headlinesResult, scrapeResult] = await Promise.allSettled([
+  fetchYouTubeComments(topic.title),
+  fetchNewsHeadlines(topic.title),
+  fetchAllScrapeDoSources(topic.title, SCRAPE_TOKEN, ['x', 'reddit']),
+]);
+```
+
+**Analysis uses ALL successful sources**:
+- If X fails but Reddit succeeds → Use Reddit + YouTube + News
+- If all sources fail → Fall back to keyword analysis (no live data)
+- More sources = more accurate emotion detection
+
+<Tip>
+  Configure at least 2 data sources for reliable analysis. Ideal setup: Scrape.do (X + Reddit) + YouTube + Gemini.
+</Tip>
+
+## Testing Your Configuration
+
+After adding keys, verify each source:
+
+<Steps>
+  <Step title="Check .env file">
+    ```bash
+    cat .env
+    ```
+    
+    Ensure no extra spaces or quotes around keys.
+  </Step>
+
+  <Step title="Restart dev server">
+    ```bash
+    npm run dev
+    ```
+  </Step>
+
+  <Step title="Analyze a test topic">
+    Search for "iPhone" or another popular topic and click Analyze.
+  </Step>
+
+  <Step title="Verify data source badges">
+    Check for green ✓ badges:
+    - ✓ X via Scrape.do
+    - ✓ Reddit via Scrape.do
+    - Data source label should say "X · Reddit · YouTube · News"
+  </Step>
+
+  <Step title="Check browser console">
+    Open DevTools (F12) → Console tab
+    
+    Look for logs like:
+    ```
+    YouTube: fetched 73 comment/title texts for "iPhone"
+    Data: 12 X posts, 8 Reddit posts, 73 YT comments, 10 headlines
+    ```
+  </Step>
+</Steps>
+
+## Related Resources
+
+- [Analyzing Topics](/guides/analyzing-topics) - Use your configured sources to analyze sentiment
+- [Understanding Metrics](/guides/understanding-metrics) - How data from different sources affects emotion scoring
+- [Exporting Data](/guides/exporting-data) - Export includes data source attribution for transparency

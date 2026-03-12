@@ -1,0 +1,207 @@
+---
+title: 'Components Overview'
+description: 'Real-time sentiment visualization components for the SENTi-radar dashboard'
+---
+
+## Overview
+
+SENTi-radar uses a collection of React components built with TypeScript, Framer Motion, and Recharts to deliver real-time sentiment analysis visualizations. All components are designed for responsiveness, accessibility, and live data updates.
+
+## Core Components
+
+### TopicDetail
+
+The main analytics panel that displays comprehensive sentiment analysis for a selected topic. Integrates all visualization components and orchestrates real-time data fetching from multiple sources.
+
+**Key Features:**
+- Multi-source data aggregation (X/Twitter, Reddit, YouTube, Google News)
+- Live emotion analysis with keyword-based scoring
+- AI-powered summary generation (Gemini, Groq, or local fallback)
+- Real-time sentiment tracking
+- Crisis level detection
+
+[Learn more →](/components/topic-detail)
+
+### SentimentGauge
+
+An animated gauge visualization showing overall sentiment polarity from -100 (negative) to +100 (positive).
+
+**Key Features:**
+- Spring-animated needle with smooth transitions
+- Color-coded sentiment zones (negative, neutral, positive)
+- Responsive SVG-based design
+- Real-time score updates
+
+[Learn more →](/components/sentiment-gauge)
+
+### EmotionBreakdown
+
+Displays percentage distribution across six emotion categories with animated horizontal bars.
+
+**Key Features:**
+- Six-emotion model: joy, anger, sadness, fear, surprise, disgust
+- Staggered animation on load
+- Percentage-based visualization
+- Color-coded emotion categories
+
+[Learn more →](/components/emotion-breakdown)
+
+### SentimentChart
+
+Time-series area chart showing positive, negative, and neutral sentiment trends over configurable time ranges.
+
+**Key Features:**
+- Multi-range support (6H, 12H, 24H, 3D, 7D)
+- Live data integration via WebSocket hooks
+- Interactive tooltips with volume metrics
+- Theme-aware styling
+
+## Component Architecture
+
+```typescript
+// Shared type definitions from @/lib/mockData
+export type Emotion = 'joy' | 'anger' | 'sadness' | 'fear' | 'surprise' | 'disgust';
+
+export interface EmotionData {
+  emotion: Emotion;
+  percentage: number;
+  count: number;
+}
+
+export interface TopicCard {
+  id: string;
+  title: string;
+  hashtag: string;
+  platform: 'x' | 'youtube' | 'both';
+  sentiment: 'positive' | 'negative' | 'mixed';
+  volume: number;
+  change: number;
+  emotions: EmotionData[];
+  summary: string;
+  keyTakeaways: string[];
+  topPhrases: { phrase: string; count: number }[];
+  crisisLevel: 'none' | 'low' | 'medium' | 'high';
+  volatility: number;
+}
+
+export interface TrendPoint {
+  time: string;
+  positive: number;
+  negative: number;
+  neutral: number;
+  volume: number;
+}
+```
+
+## Data Flow
+
+<Steps>
+  <Step title="Topic Selection">
+    User clicks a trending topic card in the dashboard
+  </Step>
+  <Step title="Data Fetching">
+    TopicDetail orchestrates parallel API calls to:
+    - YouTube Data API v3 (video comments)
+    - Google News RSS (headlines)
+    - Scrape.do (X/Twitter and Reddit posts)
+  </Step>
+  <Step title="Emotion Analysis">
+    Keyword-based emotion scoring across all fetched text
+  </Step>
+  <Step title="AI Summary Generation">
+    LLM generates narrative summary (Gemini → Groq → Local fallback)
+  </Step>
+  <Step title="Live Updates">
+    Components receive real-time emotion data and render visualizations
+  </Step>
+</Steps>
+
+## Styling System
+
+All components use Tailwind CSS with custom color tokens:
+
+```css
+/* Emotion colors */
+.bg-joy { background: hsl(152, 55%, 38%); }      /* Green */
+.bg-anger { background: hsl(0, 65%, 48%); }      /* Red */
+.bg-sadness { background: hsl(210, 50%, 45%); }  /* Blue */
+.bg-fear { background: hsl(40, 70%, 50%); }      /* Orange */
+.bg-surprise { background: hsl(280, 60%, 55%); } /* Purple */
+.bg-disgust { background: hsl(30, 45%, 40%); }   /* Brown */
+```
+
+## Animation Patterns
+
+### Framer Motion
+
+Components use consistent animation patterns:
+
+```typescript
+// Entry animation
+initial={{ opacity: 0, y: 12 }}
+animate={{ opacity: 1, y: 0 }}
+transition={{ duration: 0.25 }}
+
+// Gauge needle
+transition={{ type: 'spring', stiffness: 60, damping: 15 }}
+
+// Staggered lists
+transition={{ delay: i * 0.06, duration: 0.5 }}
+```
+
+## Environment Variables
+
+<Note>
+  **Security Warning:** All `VITE_` prefixed variables are embedded in the client bundle. For production, move API tokens to server-side functions.
+</Note>
+
+Required environment variables:
+
+```bash
+# Required for live data scraping
+VITE_SCRAPE_TOKEN=your_scrapedo_token
+
+# YouTube integration
+VITE_YOUTUBE_API_KEY=your_youtube_api_key
+
+# AI summary generation (fallback chain)
+VITE_GEMINI_API_KEY=your_gemini_key     # Tier 1
+VITE_GROQ_API_KEY=your_groq_key         # Tier 2
+# Local fallback if both fail
+```
+
+## Usage Example
+
+```tsx
+import { useState } from 'react';
+import TopicDetail from '@/components/TopicDetail';
+import type { TopicCard } from '@/lib/mockData';
+
+function Dashboard() {
+  const [selectedTopic, setSelectedTopic] = useState<TopicCard | null>(null);
+
+  return (
+    <div>
+      {/* Topic cards */}
+      <TopicDetail 
+        topic={selectedTopic} 
+        onClose={() => setSelectedTopic(null)} 
+      />
+    </div>
+  );
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="TopicDetail" icon="chart-mixed" href="/components/topic-detail">
+    Master analytics panel with live data orchestration
+  </Card>
+  <Card title="SentimentGauge" icon="gauge" href="/components/sentiment-gauge">
+    Animated sentiment polarity gauge
+  </Card>
+  <Card title="EmotionBreakdown" icon="chart-bar" href="/components/emotion-breakdown">
+    Six-emotion distribution visualization
+  </Card>
+</CardGroup>

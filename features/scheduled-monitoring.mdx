@@ -1,0 +1,484 @@
+---
+title: Scheduled Analysis & Monitoring
+description: Automate sentiment tracking with scheduled reports and custom alert thresholds delivered to email, Slack, or webhooks
+---
+
+## Overview
+
+Scheduled Monitoring allows you to configure automated sentiment analysis jobs that run at set intervals (hourly, daily, weekly, or custom cron schedules). The system monitors your chosen topics, evaluates alert conditions, and delivers insights directly to your team via email, Slack, or custom webhooks.
+
+## Getting Started
+
+<Steps>
+  <Step title="Open Schedule Configuration">
+    Click **"Schedule Analysis"** from the dashboard header or within a topic detail panel.
+  </Step>
+  
+  <Step title="Select Topic to Monitor">
+    Enter the topic name or hashtag you want to track. You can add multiple topics using the **+** button.
+    
+    **Example**: `AI Regulation` or `#ClimateAction`
+  </Step>
+  
+  <Step title="Set Monitoring Frequency">
+    Choose how often the analysis should run:
+    - **Every hour**: For breaking news, product launches, or crisis situations
+    - **Every 6 hours**: For ongoing campaigns or moderate-priority topics
+    - **Daily**: For trend tracking and weekly reports
+    - **Weekly**: For long-term brand health monitoring
+    - **Custom (cron)**: Advanced scheduling using cron syntax
+  </Step>
+  
+  <Step title="Configure Alert Thresholds">
+    Set the conditions that trigger alerts (see Alert Conditions section below).
+  </Step>
+  
+  <Step title="Choose Delivery Channels">
+    Configure where reports are sent: Email, Slack, or Webhook.
+  </Step>
+  
+  <Step title="Save & Test">
+    Click **"Test Now"** to verify your configuration, then **"Save Schedule"** to activate monitoring.
+  </Step>
+</Steps>
+
+## Schedule Configuration Modal
+
+The Schedule Analysis modal provides comprehensive control:
+
+<Tabs>
+  <Tab title="Topic Selection">
+    ```tsx
+    // Source: ScheduleAnalysisModal.tsx (lines 68-76)
+    <div className="space-y-3">
+      <h4 className="text-sm font-semibold flex items-center gap-2">
+        <Pin className="h-4 w-4 text-primary" /> Topic to Monitor
+      </h4>
+      <div className="flex gap-2">
+        <Input defaultValue="AI Regulation" className="flex-1" />
+        <Button variant="outline" size="icon">
+          <Plus className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+    ```
+    
+    **Features**:
+    - Single input field for topic name or hashtag
+    - **+** button to add multiple topics to the same schedule
+    - Auto-saves previous selections for quick re-use
+  </Tab>
+  
+  <Tab title="Frequency Options">
+    ```tsx
+    // Source: ScheduleAnalysisModal.tsx (lines 78-104)
+    <RadioGroup defaultValue="6h">
+      <RadioGroupItem value="1h" label="Every hour" />
+      <RadioGroupItem value="6h" label="Every 6 hours" />
+      <RadioGroupItem value="24h" label="Daily" />
+      <RadioGroupItem value="7d" label="Weekly" />
+      <RadioGroupItem value="custom" label="Custom (cron)" />
+    </RadioGroup>
+    ```
+    
+    **Custom Cron Examples**:
+    - `0 */3 * * *` = Every 3 hours
+    - `0 9 * * 1-5` = Weekdays at 9 AM
+    - `0 0 * * 0` = Every Sunday at midnight
+  </Tab>
+  
+  <Tab title="Report Types">
+    ```tsx
+    // Source: ScheduleAnalysisModal.tsx (lines 107-130)
+    <Checkbox id="c1" label="Executive Summary" defaultChecked />
+    <Checkbox id="c2" label="Full Analysis" defaultChecked />
+    <Checkbox id="c3" label="Crisis Alerts Only" defaultChecked />
+    <Checkbox id="c4" label="Trend Comparison" defaultChecked />
+    ```
+    
+    **Report Types**:
+    - **Executive Summary**: High-level overview (1 page)
+    - **Full Analysis**: Complete sentiment breakdown with AI insights
+    - **Crisis Alerts Only**: Only sends when alert thresholds are met
+    - **Trend Comparison**: Shows how metrics changed since last report
+  </Tab>
+  
+  <Tab title="Delivery Configuration">
+    ```tsx
+    // Source: ScheduleAnalysisModal.tsx (lines 132-151)
+    <div className="space-y-3">
+      <Input 
+        icon={<Mail />}
+        defaultValue="user@company.com" 
+        placeholder="Email addresses (comma-separated)" 
+      />
+      <Input 
+        icon={<MessageSquare />}
+        defaultValue="#sentiment-alerts" 
+        placeholder="Slack channel" 
+      />
+      <Input 
+        icon={<Webhook />}
+        defaultValue="https://api.company.com/webhook" 
+        placeholder="Webhook URL" 
+      />
+    </div>
+    ```
+    
+    **Multi-channel delivery**:
+    - Email: Supports multiple addresses (comma-separated)
+    - Slack: Webhook URL or channel name (#sentiment-alerts)
+    - Webhook: POST JSON payload to your API
+  </Tab>
+</Tabs>
+
+## Alert Conditions & Thresholds
+
+Define precisely when alerts should fire using interactive sliders:
+
+### 1. Sentiment Drop Threshold
+
+```tsx
+// Source: ScheduleAnalysisModal.tsx (lines 160-167)
+<div className="space-y-3">
+  <Label className="flex items-center gap-2">
+    <TrendingDown className="h-4 w-4 text-destructive" /> 
+    Sentiment drops below
+  </Label>
+  <span className="font-mono">30%</span>
+  <Slider defaultValue={[30]} max={100} step={1} />
+</div>
+```
+
+**Use case**: Alert when positive sentiment falls below 30% (indicating majority negative/neutral opinion).
+
+<Info>
+Recommended thresholds:
+- **Conservative**: 40% (catches early warnings)
+- **Balanced**: 30% (standard crisis threshold)
+- **Aggressive**: 20% (only severe crises)
+</Info>
+
+### 2. Volume Spike Detection
+
+```tsx
+// Source: ScheduleAnalysisModal.tsx (lines 169-176)
+<Label className="flex items-center gap-2">
+  <Flame className="h-4 w-4 text-warning" /> 
+  Volume spikes above (vs avg)
+</Label>
+<span className="font-mono">150%</span>
+<Slider defaultValue={[150]} max={500} step={10} />
+```
+
+**Use case**: Alert when conversation volume exceeds 150% of the rolling average (viral trend detection).
+
+**Example**: If average hourly volume is 10K mentions, alert triggers at 15K+ mentions.
+
+### 3. Emotion-Specific Triggers
+
+```tsx
+// Source: ScheduleAnalysisModal.tsx (lines 178-187)
+<Label className="flex items-center gap-2">
+  <Angry className="h-4 w-4 text-destructive" /> 
+  Anger emotion exceeds
+</Label>
+<span className="font-mono">40%</span>
+<Slider defaultValue={[40]} max={100} step={1} />
+```
+
+**Use case**: Trigger crisis alert when anger surpasses 40% of all emotions.
+
+**Why anger?** Anger is the strongest predictor of:
+- Boycott movements
+- Viral backlash
+- Media amplification
+- Regulatory action
+
+<Note>
+You can customize this for other emotions. For example, set **Fear > 50%** for security/privacy topics, or **Disgust > 30%** for ethical scandals.
+</Note>
+
+### 4. Viral Momentum Detection
+
+```tsx
+// Source: ScheduleAnalysisModal.tsx (lines 190-194)
+<Checkbox id="c5" defaultChecked>
+  <TrendingUp className="h-4 w-4" /> 
+  Notify if viral momentum detected
+</Checkbox>
+```
+
+**How it works**: Triggers when:
+- Volume increases 200%+ within 1 hour
+- Sentiment shifts 30+ points in 6 hours
+- Topic enters trending algorithms (X, YouTube)
+
+## Delivery Channels
+
+### Email Delivery
+
+**Configuration**:
+```bash
+user@company.com, team@company.com, ceo@company.com
+```
+
+**Email format**:
+- **Subject**: `[SENTi-radar Alert] AI Regulation — Crisis Detected`
+- **Body**: HTML-formatted report with emotion charts, sentiment timeline, and AI recommendations
+- **Attachments**: Optional CSV export
+
+### Slack Integration
+
+**Configuration**:
+```bash
+#sentiment-alerts
+```
+
+**or**
+
+```bash
+https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXX
+```
+
+**Slack message format**:
+```markdown
+🔴 **Crisis Alert: Global Food Prices**
+
+Sentiment: **Negative** (-45)
+Dominant Emotion: **Anger (48%)**
+Volume: **156.8K** (+67%)
+
+**Key Concerns**:
+• Corporate greed (18.4K mentions)
+• Can't afford groceries (14.2K mentions)
+• Price controls demanded (9.8K mentions)
+
+**Recommended Action**: Immediate response required — anger at corporate profiteering is escalating.
+
+<https://dashboard.senti-radar.com/topics/food-crisis|View Full Report>
+```
+
+### Webhook Integration
+
+**Configuration**:
+```bash
+https://api.company.com/webhooks/sentiment-alert
+```
+
+**Webhook payload** (POST request):
+```json
+{
+  "event": "crisis_detected",
+  "timestamp": "2026-03-12T14:30:00Z",
+  "topic": {
+    "id": "4",
+    "title": "Global Food Prices",
+    "hashtag": "#FoodCrisis",
+    "sentiment": "negative",
+    "sentiment_score": -45,
+    "crisis_level": "high",
+    "volatility": 91
+  },
+  "emotions": [
+    { "emotion": "anger", "percentage": 48, "count": 75264 },
+    { "emotion": "fear", "percentage": 22, "count": 34496 },
+    { "emotion": "sadness", "percentage": 18, "count": 28224 }
+  ],
+  "volume": {
+    "current": 156800,
+    "change_pct": 67,
+    "trend": "rising"
+  },
+  "top_phrases": [
+    { "phrase": "corporate greed", "count": 18400 },
+    { "phrase": "can't afford", "count": 14200 }
+  ],
+  "alert_triggers": [
+    "sentiment_below_threshold",
+    "anger_exceeds_40",
+    "volume_spike_detected"
+  ],
+  "report_url": "https://dashboard.senti-radar.com/reports/4-2026-03-12",
+  "ai_summary": "Public outrage at corporate profiteering and government inaction. Immediate crisis communication recommended."
+}
+```
+
+<Info>
+Webhooks allow you to integrate with PagerDuty, Opsgenie, Jira, or custom incident management systems.
+</Info>
+
+## Testing Your Schedule
+
+Before saving, always test your configuration:
+
+```tsx
+// Source: ScheduleAnalysisModal.tsx (lines 48-53)
+const handleTest = () => {
+  toast({
+    title: 'Testing Integration',
+    description: 'A test ping has been sent to your configured endpoints.'
+  });
+};
+```
+
+**What happens during a test**:
+1. System generates a sample analysis for the selected topic
+2. Sends test messages to all configured channels:
+   - Email: `[TEST] SENTi-radar Configuration Test`
+   - Slack: `🧪 Test Alert — Configuration successful`
+   - Webhook: Includes `"test": true` flag in payload
+3. Shows success/failure toast notification
+
+<Note>
+If the test fails, check:
+- Email addresses are valid
+- Slack webhook URL is correct and not expired
+- Webhook endpoint returns 200-299 status code
+- API keys (if required) are configured
+</Note>
+
+## Saved Schedules & History
+
+View and manage your active schedules:
+
+```tsx
+// Source: ScheduleAnalysisModal.tsx (lines 202-204)
+<Button variant="outline" size="sm">
+  <History className="h-4 w-4" /> View History
+</Button>
+```
+
+**Schedule History includes**:
+- All past executions (timestamp, status)
+- Alert triggers (which conditions fired)
+- Delivery status (email sent, webhook 200 OK)
+- Generated reports (archived for 90 days)
+- Errors and retry attempts
+
+## Use Cases
+
+### Product Launch Monitoring
+
+**Configuration**:
+- **Topic**: `iPhone 18 Launch`
+- **Frequency**: Every hour (for first 48 hours)
+- **Alert Thresholds**:
+  - Sentiment < 40%
+  - Anger > 35%
+  - Volume spike > 200%
+- **Delivery**: Slack #product-team + Email to PR lead
+- **Report Types**: Crisis Alerts Only + Trend Comparison
+
+**Why this works**: Hourly monitoring catches real-time reactions. Crisis Alerts Only prevents noise while catching pricing backlash or feature complaints.
+
+### Brand Health Dashboard (Weekly)
+
+**Configuration**:
+- **Topic**: `YourBrand` (your company name)
+- **Frequency**: Weekly (Sunday at 9 AM)
+- **Alert Thresholds**: 
+  - Sentiment < 30%
+  - Disgust > 25% (ethical/quality issues)
+- **Delivery**: Email to C-suite + Slack #exec-updates
+- **Report Types**: Full Analysis + Trend Comparison
+
+**Why this works**: Weekly cadence shows long-term trends without alert fatigue. Trend Comparison highlights month-over-month changes.
+
+### Crisis-Only Monitoring
+
+**Configuration**:
+- **Topic**: `Industry Regulation`
+- **Frequency**: Every 6 hours
+- **Alert Thresholds**:
+  - Sentiment < 25%
+  - Anger > 50%
+  - Fear > 40%
+  - Volume spike > 150%
+- **Delivery**: PagerDuty webhook + Email
+- **Report Types**: Crisis Alerts Only
+
+**Why this works**: Only sends alerts when multiple red flags align (anger + fear + volume spike). Prevents false positives.
+
+## Advanced: Combining Conditions
+
+You can create sophisticated alert logic by enabling multiple thresholds:
+
+**Example: High-Confidence Crisis Alert**
+
+Trigger only when **ALL** of these are true:
+- ✅ Sentiment < 30%
+- ✅ Anger > 40%
+- ✅ Volume spike > 150%
+- ✅ Crisis level = "high"
+
+**Implementation** (pseudo-code):
+```typescript
+const shouldAlert = (
+  sentiment < 30 &&
+  anger > 40 &&
+  volumeSpike > 150 &&
+  crisisLevel === 'high'
+);
+```
+
+This reduces false positives by requiring convergence of multiple signals.
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Start Conservative" icon="shield">
+    Begin with sensitive thresholds (e.g., sentiment < 40%, anger > 30%) to catch early warnings. Relax them if you get too many false positives.
+  </Card>
+  
+  <Card title="Use Crisis Alerts Only for High-Frequency Schedules" icon="filter">
+    If monitoring hourly, enable "Crisis Alerts Only" to avoid inbox/Slack spam. Save "Full Analysis" for daily/weekly reports.
+  </Card>
+  
+  <Card title="Test Webhooks Thoroughly" icon="webhook">
+    Always click "Test Now" before saving. Verify your endpoint receives the payload and handles it correctly.
+  </Card>
+  
+  <Card title="Archive Old Schedules" icon="archive">
+    Deactivate schedules for completed campaigns or past events to keep your dashboard clean.
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+### Alerts Not Firing
+
+**Possible causes**:
+1. **Thresholds too strict**: Lower sentiment threshold from 20% → 35%
+2. **Topic has low volume**: Ensure topic is trending (> 1K mentions/hour)
+3. **Schedule paused**: Check History to see if it's active
+
+### Email Delivery Failures
+
+**Check**:
+- Email addresses are valid (no typos)
+- Not caught in spam filter (whitelist `alerts@senti-radar.com`)
+- SMTP quota not exceeded
+
+### Webhook Timeouts
+
+**Fix**:
+- Ensure endpoint responds within 10 seconds
+- Return 200-299 status code (even if async processing)
+- Check firewall/CORS settings
+
+## Limitations
+
+<Note>
+**Real-time data requirements**: Schedules rely on live data from YouTube, X, and Reddit. If API quotas are exceeded or tokens expire, reports may fall back to keyword analysis.
+
+**Frequency limits**: Hourly monitoring can hit rate limits on free API tiers. For sub-hourly monitoring, consider upgrading to paid API plans (Scrape.do, YouTube Data API).
+
+**No retroactive analysis**: Schedules only analyze data from the time they run. If a crisis occurred 3 hours ago but your schedule runs every 6 hours, you'll miss the peak.
+</Note>
+
+## Related Features
+
+- [Crisis Detection](/features/crisis-detection) - Understand what triggers scheduled alerts
+- [Data Export](/features/data-export) - Export scheduled report data for long-term archival
+- [AI Insights](/features/ai-insights) - AI-generated recommendations included in Full Analysis reports

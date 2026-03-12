@@ -1,0 +1,307 @@
+---
+title: 'Google News Data Source'
+description: 'Future integration for news article sentiment analysis'
+---
+
+## Status
+
+<Warning>
+Google News integration is **not currently implemented** in SENTi-radar. This page documents the planned architecture for future development.
+</Warning>
+
+## Planned Architecture
+
+While SENTi-radar currently focuses on social media sentiment (Twitter/X, Reddit, YouTube), news article analysis is a logical next step for comprehensive sentiment tracking.
+
+## Proposed Implementation Strategies
+
+### Option 1: Google News RSS (Free)
+
+Google News provides RSS feeds that can be scraped without authentication:
+
+```typescript
+// Planned implementation in supabase/functions/fetch-news/index.ts
+
+const newsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(topic.query)}&hl=en-US&gl=US&ceid=US:en`;
+
+const response = await fetch(newsUrl);
+const xmlText = await response.text();
+
+// Parse RSS XML
+const parser = new DOMParser();
+const doc = parser.parseFromString(xmlText, "text/xml");
+const items = doc.querySelectorAll("item");
+
+const articles = Array.from(items).map(item => ({
+  title: item.querySelector("title")?.textContent || "",
+  link: item.querySelector("link")?.textContent || "",
+  pubDate: item.querySelector("pubDate")?.textContent || "",
+  source: item.querySelector("source")?.textContent || "Unknown",
+  description: item.querySelector("description")?.textContent || ""
+}));
+```
+
+<Info>
+**Pros:** Free, no API key required, simple XML parsing  
+**Cons:** Limited to headlines/snippets (no full article text)
+</Info>
+
+### Option 2: NewsAPI.org (Paid)
+
+NewsAPI provides structured JSON with full article metadata:
+
+```typescript
+const newsApiUrl = new URL("https://newsapi.org/v2/everything");
+newsApiUrl.searchParams.set("q", topic.query);
+newsApiUrl.searchParams.set("language", "en");
+newsApiUrl.searchParams.set("sortBy", "publishedAt");
+newsApiUrl.searchParams.set("pageSize", "20");
+newsApiUrl.searchParams.set("apiKey", NEWS_API_KEY);
+
+const response = await fetch(newsApiUrl.toString());
+const data = await response.json();
+
+const articles = data.articles.map((article: any) => ({
+  id: `news_${article.url.replace(/[^a-z0-9]/gi, "_")}`,
+  text: article.title + ". " + article.description,
+  author: article.author || article.source.name,
+  platform: "news",
+  url: article.url,
+  postedAt: article.publishedAt,
+  source: article.source.name
+}));
+```
+
+<Info>
+**Pros:** Structured JSON, article metadata, multiple languages  
+**Cons:** $449/month for production tier, 1,000 requests/day limit on free tier
+</Info>
+
+### Option 3: Scrape.do + Full Article Extraction
+
+Use Scrape.do to fetch full article content from news sites:
+
+```typescript
+// Step 1: Get headlines from Google News RSS
+const rssArticles = await fetchGoogleNewsRss(topic.query);
+
+// Step 2: Extract full article text using Scrape.do
+const fullArticles = await Promise.all(
+  rssArticles.slice(0, 5).map(async (article) => {
+    const scrapeUrl = buildScrapeDoUrl(
+      SCRAPE_DO_TOKEN,
+      article.link,
+      { render: true, waitUntil: "networkidle2" }
+    );
+    
+    const response = await fetch(scrapeUrl);
+    const html = await response.text();
+    
+    // Extract article body (varies by site)
+    const bodyMatch = html.match(
+      /<article[\s\S]*?<\/article>|<div class="article-body"[\s\S]*?<\/div>/i
+    );
+    
+    const fullText = bodyMatch 
+      ? stripHtml(bodyMatch[0]).substring(0, 2000)
+      : article.description;
+    
+    return {
+      ...article,
+      text: fullText
+    };
+  })
+);
+```
+
+<Info>
+**Pros:** Full article text, no API costs beyond Scrape.do  
+**Cons:** Requires site-specific parsing, vulnerable to HTML changes
+</Info>
+
+## Challenges
+
+<AccordionGroup>
+  <Accordion title="Paywalls and Registration Walls">
+    Many news sites (NYT, WSJ, The Atlantic) require subscriptions. Scrape.do can bypass some paywalls, but this raises legal/ethical concerns.
+
+    **Solution:** Focus on open-access news sources or use NewsAPI which handles licensing.
+  </Accordion>
+
+  <Accordion title="Article Text Extraction">
+    News sites have inconsistent HTML structures. Extracting article body requires:
+    - Site-specific CSS selectors
+    - Detection of article boundaries vs. ads/sidebars
+    - Handling of multi-page articles
+
+    **Solution:** Use libraries like:
+    - `@mozilla/readability` (article extraction)
+    - `node-html-parser` (lightweight DOM parsing)
+  </Accordion>
+
+  <Accordion title="Sentiment Analysis Complexity">
+    News articles are longer and more nuanced than social media posts. Sentiment analysis needs:
+    - Paragraph-level analysis (not just document-level)
+    - Detection of quoted vs. editorial content
+    - Handling of neutral, fact-based reporting
+
+    **Solution:** Use advanced NLP models (GPT-4, Claude) instead of simple positive/negative classification.
+  </Accordion>
+</AccordionGroup>
+
+## Data Schema
+
+Proposed database structure for news articles:
+
+```sql
+CREATE TABLE news_articles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  topic_id UUID REFERENCES topics(id),
+  title TEXT NOT NULL,
+  description TEXT,
+  full_text TEXT,
+  url TEXT NOT NULL UNIQUE,
+  source TEXT NOT NULL,  -- e.g., "CNN", "BBC", "Reuters"
+  author TEXT,
+  published_at TIMESTAMPTZ NOT NULL,
+  fetched_at TIMESTAMPTZ DEFAULT NOW(),
+  sentiment_score FLOAT,  -- -1.0 to 1.0
+  sentiment_label TEXT,   -- 'positive', 'negative', 'neutral'
+  
+  UNIQUE(url)
+);
+
+CREATE INDEX idx_news_topic ON news_articles(topic_id);
+CREATE INDEX idx_news_published ON news_articles(published_at DESC);
+```
+
+## Integration with Existing Pipeline
+
+News fetching would run in parallel with social media sources:
+
+```typescript
+// In supabase/functions/analyze-topic/index.ts
+
+// Current sources
+await Promise.all([
+  fetch(`${supabaseUrl}/functions/v1/fetch-twitter`, { ... }),
+  fetch(`${supabaseUrl}/functions/v1/fetch-reddit`, { ... }),
+  fetch(`${supabaseUrl}/functions/v1/fetch-youtube`, { ... }),
+  
+  // New news source
+  fetch(`${supabaseUrl}/functions/v1/fetch-news`, { ... })
+]);
+```
+
+## Cost Estimation
+
+### NewsAPI.org
+
+| Tier | Cost | Requests/Day | Notes |
+|------|------|--------------|-------|
+| Developer | Free | 100 | Headlines only |
+| Business | $449/mo | 250,000 | Full articles |
+
+### Scrape.do (for full article extraction)
+
+| Operation | Credits | Cost |
+|-----------|---------|------|
+| Fetch RSS feed | 0.5 | Free (direct fetch, no proxy) |
+| Extract 1 article | 1 | ~$0.001 |
+| Extract 5 articles/topic | 5 | ~$0.005 |
+
+**Monthly cost (100 topics/day):**  
+100 topics × 5 articles × $0.001 × 30 days = **$15/month**
+
+<Note>
+Scrape.do approach is **30x cheaper** than NewsAPI for production use.
+</Note>
+
+## Recommended Approach
+
+<Steps>
+  <Step title="Start with Google News RSS">
+    Implement basic headline scraping (free, no API key)
+  </Step>
+  <Step title="Add Scrape.do for full articles">
+    Extract top 3-5 article bodies per topic
+  </Step>
+  <Step title="Implement article text parsing">
+    Use `@mozilla/readability` for clean text extraction
+  </Step>
+  <Step title="Upgrade sentiment model">
+    Use GPT-4 for paragraph-level sentiment analysis
+  </Step>
+  <Step title="Consider NewsAPI for scale">
+    Switch to NewsAPI if Scrape.do becomes unreliable
+  </Step>
+</Steps>
+
+## Example Edge Function Skeleton
+
+```typescript
+// supabase/functions/fetch-news/index.ts
+
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  try {
+    const NEWS_API_KEY = Deno.env.get("NEWS_API_KEY") || "";
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    const { topic_id } = await req.json();
+    if (!topic_id) throw new Error("topic_id is required");
+
+    const { data: topic } = await supabase
+      .from("topics")
+      .select("*")
+      .eq("id", topic_id)
+      .single();
+
+    if (!topic) throw new Error("Topic not found");
+
+    // TODO: Implement news fetching logic
+    const articles = [];
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        fetched: articles.length,
+        inserted: 0,
+        info: "Google News (not implemented)"
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  } catch (error) {
+    return new Response(
+      JSON.stringify({ success: false, error: error.message }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+});
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Contribute" icon="github" href="https://github.com/your-repo/senti-radar">
+    Help implement Google News integration
+  </Card>
+  <Card title="Data Sources Overview" icon="diagram-project" href="/sources/overview">
+    Learn about existing data sources
+  </Card>
+</CardGroup>
+
+<Note>
+Interested in building this feature? Check the GitHub issues labeled `feature: google-news` or open a discussion.
+</Note>

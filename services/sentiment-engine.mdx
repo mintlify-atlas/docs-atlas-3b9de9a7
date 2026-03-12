@@ -1,0 +1,559 @@
+---
+title: Sentiment Engine
+description: Real-time emotion scoring and sentiment analysis engine using keyword-based lexicon matching and theme detection
+---
+
+# Sentiment Engine
+
+The Sentiment Engine is the core analysis system that powers SENTi-radar's emotion detection, sentiment classification, and theme identification. It processes text from multiple sources (X, Reddit, YouTube, News RSS) and produces actionable insights.
+
+## Architecture
+
+The engine is implemented in `TopicDetail.tsx` (lines 34-313) and consists of three main components:
+
+1. **Emotion Lexicon** — Keyword dictionaries for 6 emotions
+2. **Theme Detection** — Domain-specific keyword matching
+3. **Sentiment Scorer** — Aggregates emotion data into sentiment classifications
+
+## Emotion Lexicon
+
+The engine uses a keyword-based lexicon mapping emotions to trigger words:
+
+```typescript
+const EMOTION_KEYWORDS: Record<string, string[]> = {
+  fear:    ['fear','scared','worried','panic','threat','risk','dangerous','crisis','collapse','shortage','anxiety','alarm','uncertainty','instability','warn','catastroph','turmoil','chaos','tension','war','nuclear','invasion','missile','attack','afraid','terrifying','dread','horrified','alarming'],
+  anger:   ['anger','angry','outrage','furious','rage','frustrat','unacceptable','scandal','corrupt','condemn','protest','exploit','injustice','blame','backlash','fury','demand','ban','oppose','ridiculous','pathetic','disgusting','shameful','hate','upset','terrible','horrible','awful','liar'],
+  sadness: ['sad','disappoint','tragic','loss','suffer','grief','regret','devastat','despair','victim','casualt','death','pain','mourn','unfortunate','heartbreak','sorrow','crying','tears','sorry','depressing','hopeless'],
+  joy:     ['happy','excited','great','amazing','love','excellent','fantastic','celebrate','breakthrough','success','innovation','optimis','hopeful','launch','growth','improve','wonderful','awesome','congratulations','proud','thrilled','wow','incredible','blessed','thank','glad'],
+  surprise:['shocking','unexpected','unbelievable','stunning','incredible','reveal','bombshell','breaking','unprecedented','remarkable','wtf','omg','cant believe','seriously','really','whoa','wait what'],
+  disgust: ['disgust','appalling','horrible','corrupt','toxic','vile','sickening','revolting','gross','nauseating','shameful','pathetic','ridiculuous'],
+};
+```
+
+<Note>
+  Keywords are matched case-insensitively using regex pattern matching. Partial matches are supported (e.g., "frustrat" matches "frustrated", "frustration", "frustrating").
+</Note>
+
+## Core Functions
+
+### scoreEmotions
+
+<ParamField body="scoreEmotions" type="function">
+  Analyzes an array of text strings and returns emotion distribution.
+</ParamField>
+
+```typescript
+function scoreEmotions(texts: string[]): EmotionData[]
+```
+
+**Parameters:**
+- `texts` (string[]): Array of text samples (posts, comments, headlines)
+
+**Returns:** Array of `EmotionData` objects sorted by percentage (highest first)
+
+**EmotionData Interface:**
+
+```typescript
+export interface EmotionData {
+  emotion: Emotion;
+  percentage: number;  // 0-100, normalized to sum to exactly 100
+  count: number;       // Raw keyword match count
+}
+
+export type Emotion = 'joy' | 'anger' | 'sadness' | 'fear' | 'surprise' | 'disgust';
+```
+
+**Algorithm:**
+
+1. Join all texts into a single lowercase string
+2. For each emotion, count matches of all keywords using regex
+3. Calculate percentage: `(emotion_count / total_matches) * 100`
+4. Sort by percentage descending
+5. Normalize to ensure sum equals exactly 100%
+
+**Implementation (lines 146-167):**
+
+```typescript
+function scoreEmotions(texts: string[]): EmotionData[] {
+  const allText = texts.join(' ').toLowerCase();
+  const scores: Record<string, number> = {};
+  
+  for (const [emotion, words] of Object.entries(EMOTION_KEYWORDS)) {
+    scores[emotion] = words.reduce((sum, w) => {
+      const re = new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+      return sum + (allText.match(re)?.length || 0);
+    }, 0);
+  }
+  
+  const total = Object.values(scores).reduce((a, b) => a + b, 0) || 1;
+  const emotions: EmotionData[] = Object.entries(scores)
+    .map(([emotion, score]) => ({
+      emotion,
+      percentage: Math.round((score / total) * 100),
+      count: score,
+    }))
+    .sort((a, b) => b.percentage - a.percentage);
+  
+  // Normalize to exactly 100
+  const sum = emotions.reduce((s, e) => s + e.percentage, 0);
+  if (sum !== 100 && sum > 0) emotions[0].percentage += (100 - sum);
+  
+  return emotions;
+}
+```
+
+**Example:**
+
+```typescript
+const texts = [
+  "Breaking news: shocking development in the crisis",
+  "People are furious and worried about the future",
+  "This is absolutely terrifying and unacceptable"
+];
+
+const emotions = scoreEmotions(texts);
+console.log(emotions);
+// [
+//   { emotion: "fear", percentage: 42, count: 3 },
+//   { emotion: "anger", percentage: 33, count: 2 },
+//   { emotion: "surprise", percentage: 25, count: 2 },
+//   { emotion: "sadness", percentage: 0, count: 0 },
+//   { emotion: "joy", percentage: 0, count: 0 },
+//   { emotion: "disgust", percentage: 0, count: 0 }
+// ]
+```
+
+## Theme Detection
+
+The engine identifies topic themes using domain-specific keyword matching:
+
+```typescript
+const TOPIC_THEMES: Record<string, { keywords: string[]; templates: string[] }> = {
+  geopolitical: {
+    keywords: ['war','tension','conflict','iran','israel','russia','ukraine','china','nato','missile','nuclear','sanction','military','attack','defense','border','invasion','ceasefire','diplomacy','treaty','army','troops'],
+    templates: [
+      'Escalation fears are driving market volatility and public anxiety across affected regions',
+      'Diplomatic channels remain under pressure — calls for de-escalation are growing louder',
+      'Defense and security discussions dominate, with civilians expressing concern over safety',
+      'Economic ripple effects are a major worry — trade disruptions and supply chain risks are top of mind',
+      'International community response is being closely watched for signs of intervention',
+    ],
+  },
+  energy: {
+    keywords: ['oil','gas','fuel','energy','opec','crude','petroleum','shortage','reserve','pipeline','refinery','barrel','lng','solar','renewable','lpg','petrol','diesel'],
+    templates: [
+      'Fuel price hikes are the #1 concern — households fear rising costs for LPG, petrol, and diesel',
+      'Energy security is being questioned — import dependence makes the situation fragile',
+      'Calls for strategic reserve deployment and alternative energy sources are intensifying',
+      'Industry impact is significant — manufacturing and transport sectors face cost pressure',
+      'Government policy response (subsidies, reserves, trade deals) is under heavy public scrutiny',
+    ],
+  },
+  policy: { /* ... */ },
+  tech: { /* ... */ },
+  economic: { /* ... */ },
+  health: { /* ... */ },
+  social: { /* ... */ },
+};
+```
+
+### Theme Detection Algorithm
+
+From `analyzeTopicFully` (lines 251-257):
+
+```typescript
+// Detect theme from topic title
+let bestTheme = 'general';
+let bestScore = 0;
+for (const [theme, config] of Object.entries(TOPIC_THEMES)) {
+  const score = config.keywords.filter(kw => text.includes(kw)).length;
+  if (score > bestScore) { bestScore = score; bestTheme = theme; }
+}
+```
+
+The theme with the most keyword matches wins. Templates from that theme are used in the summary takeaways.
+
+## Sentiment Analysis
+
+### analyzeTopicFully
+
+<ParamField body="analyzeTopicFully" type="function">
+  Master analysis function that combines emotion scoring, sentiment classification, and theme detection.
+</ParamField>
+
+```typescript
+function analyzeTopicFully(
+  topicTitle: string,
+  headlines: string[],
+  comments: string[],
+  scrapedPosts: ScrapedPost[] = [],
+  scrapeDoResults: ScrapeDoResult[] = []
+): AnalysisResult
+```
+
+**Parameters:**
+- `topicTitle` (string): The topic being analyzed (e.g., "AI Regulation Debate")
+- `headlines` (string[]): News headlines from Google News RSS
+- `comments` (string[]): YouTube comments and video titles
+- `scrapedPosts` (ScrapedPost[]): Posts from X and Reddit via Scrape.do
+- `scrapeDoResults` (ScrapeDoResult[]): Per-source status info
+
+**Returns:** `AnalysisResult` object
+
+### AnalysisResult Interface
+
+```typescript
+interface AnalysisResult {
+  headlines: string[];
+  comments: string[];
+  scrapedPosts: ScrapedPost[];
+  scrapeDoResults: ScrapeDoResult[];
+  theme: string;  // e.g., "geopolitical", "tech", "health"
+  emotions: { emotion: string; percentage: number }[];
+  dominantEmotion: string;
+  dominantPct: number;
+  secondEmotion: string;
+  secondPct: number;
+  sentiment: 'positive' | 'negative' | 'mixed';
+  crisisLevel: 'none' | 'medium' | 'high';
+  takeaways: string[];
+  commentCount: number;
+  dataSource: string;  // e.g., "X + Reddit + YouTube + News RSS"
+}
+```
+
+### Sentiment Classification Logic
+
+From lines 262-268:
+
+```typescript
+const negKw = ['war','attack','crisis','shortage','tension','conflict','scandal','ban','protest','threat','crash','decline','fail','corrupt','dangerous'];
+const posKw = ['launch','success','growth','celebrate','innovation','deal','partnership','breakthrough','improve','great','amazing','wonderful','fantastic'];
+const negCount = negKw.filter(w => text.includes(w)).length;
+const posCount = posKw.filter(w => text.includes(w)).length;
+
+const sentiment: 'positive' | 'negative' | 'mixed' = 
+  negCount > posCount * 1.3 ? 'negative' : 
+  posCount > negCount * 1.3 ? 'positive' : 'mixed';
+```
+
+**Rules:**
+- **Negative**: Negative keywords > Positive keywords × 1.3
+- **Positive**: Positive keywords > Negative keywords × 1.3
+- **Mixed**: Neither condition met
+
+### Crisis Level Detection
+
+From line 268:
+
+```typescript
+const crisisLevel: 'none' | 'medium' | 'high' = 
+  negCount >= 4 ? 'high' : 
+  negCount >= 2 ? 'medium' : 'none';
+```
+
+**Thresholds:**
+- **High**: 4+ negative keywords detected
+- **Medium**: 2-3 negative keywords
+- **None**: 0-1 negative keywords
+
+## Local Summary Generation
+
+### buildLocalSummary
+
+<ParamField body="buildLocalSummary" type="function">
+  Generates a markdown summary when LLMs are unavailable (fallback mode).
+</ParamField>
+
+```typescript
+function buildLocalSummary(topic: TopicCard, analysis: AnalysisResult): string
+```
+
+**Parameters:**
+- `topic` (TopicCard): The topic card object
+- `analysis` (AnalysisResult): Analysis result from `analyzeTopicFully`
+
+**Returns:** Markdown-formatted summary string
+
+**Template Structure:**
+
+```markdown
+### [Emoji] [Emotion1] & [Emotion2] Dominate – [Crisis Label]
+
+[Narrative paragraph with emotion percentages and data sources]
+
+**People's Voice – Key Takeaways**
+• [Takeaway 1]
+• [Takeaway 2]
+• [Takeaway 3]
+• [Takeaway 4]
+• [Takeaway 5]
+
+_Live from [Data Source] | [Time] | [Count]+ discussions analyzed_
+```
+
+**Example Output:**
+
+```markdown
+### 🔴 Fear & Anger Dominate – High Crisis Risk
+
+Public sentiment on **Global Food Prices** is overwhelmingly negative. **Fear (48%)** and **Anger (22%)** dominate — derived from 120+ real X/Twitter and Reddit posts. Example: _"Can't afford to feed my family anymore. Grocery prices are out of control..."_
+
+**People's Voice – Key Takeaways**
+• Fuel price hikes are the #1 concern — households fear rising costs for LPG, petrol, and diesel
+• Energy security is being questioned — import dependence makes the situation fragile
+• Calls for strategic reserve deployment and alternative energy sources are intensifying
+• **Source:** _"Grocery receipt photos going viral as proof of inflation"_
+• Discussion volume is elevated — public attention is surging
+
+_Live from X via Scrape.do + Reddit via Scrape.do | 02:30 PM | 120+ discussions analyzed_
+```
+
+**Emoji Selection (lines 361-362):**
+
+```typescript
+const emoji = crisisLevel === 'high' ? '🔴' : 
+              crisisLevel === 'medium' ? '🟡' : 
+              sentiment === 'positive' ? '🟢' : '🔵';
+```
+
+## LLM Integration
+
+### buildLLMPrompt
+
+<ParamField body="buildLLMPrompt" type="function">
+  Constructs prompts for Gemini or Groq LLMs to generate enhanced summaries.
+</ParamField>
+
+```typescript
+function buildLLMPrompt(topic: TopicCard, analysis: AnalysisResult): { system: string; user: string }
+```
+
+**Returns:**
+- `system` (string): System prompt defining assistant behavior
+- `user` (string): User prompt with analysis data and format instructions
+
+**System Prompt:**
+
+```typescript
+const system = `You are a razor-sharp real-time sentiment analyst. You analyze REAL social media posts and news data. Be specific and opinionated. Reference "${topic.title}" by name. Never be generic.`;
+```
+
+**User Prompt Structure:**
+
+```typescript
+const user = `Analyze public sentiment for "${topic.title}" based on REAL data.
+
+SOURCE: ${analysis.dataSource}
+EMOTION ANALYSIS (from ${analysis.commentCount}+ real texts):
+- Dominant emotion: ${analysis.dominantEmotion} (${analysis.dominantPct}%)
+- Second emotion: ${analysis.secondEmotion} (${analysis.secondPct}%)
+- Sentiment: ${analysis.sentiment} | Crisis: ${analysis.crisisLevel} | Theme: ${analysis.theme}
+
+${/* NEWS HEADLINES, YOUTUBE COMMENTS, X & REDDIT POSTS */}
+
+Write this EXACT markdown format:
+
+### [🔴/🟡/🟢/🔵] [Emotion1] & [Emotion2] Dominate – [Risk/Opportunity]
+
+[2-3 sentences specific to "${topic.title}". Reference real posts/headlines as evidence. Include emotion %s. Be sharp and opinionated.]
+
+**People's Voice – Key Takeaways**
+• [Insight from real posts or headlines]
+• [Specific public concern or reaction]
+• [Data-driven observation with emotion stats]
+• [Forward-looking point — what to watch]
+• [One more sharp observation]
+
+_Live from ${analysis.dataSource} | ${now} | ${analysis.commentCount}+ discussions analyzed_`;
+```
+
+**LLM Tier Fallback (lines 512-570):**
+
+1. **Tier 1**: Gemini 2.0 Flash (if `VITE_GEMINI_API_KEY` set)
+2. **Tier 2**: Groq Llama 3.3 70B (if `VITE_GROQ_API_KEY` set)
+3. **Tier 3**: Local summary (guaranteed, no API required)
+
+## Data Source Labeling
+
+### buildDataSourceLabel
+
+<ParamField body="buildDataSourceLabel" type="function">
+  Constructs a human-readable label listing all active data sources.
+</ParamField>
+
+```typescript
+function buildDataSourceLabel(
+  ytCount: number,
+  rssCount: number,
+  scrapedPosts: ScrapedPost[]
+): string
+```
+
+**Example outputs:**
+- `"YouTube + News RSS + X via Scrape.do + Reddit via Scrape.do"`
+- `"X via Scrape.do + Reddit via Scrape.do"`
+- `"Keyword Analysis"` (when no sources returned data)
+
+**Implementation (lines 316-329):**
+
+```typescript
+function buildDataSourceLabel(
+  ytCount: number,
+  rssCount: number,
+  scrapedPosts: ScrapedPost[],
+): string {
+  const parts: string[] = [];
+  if (ytCount > 0) parts.push('YouTube');
+  if (rssCount > 0) parts.push('News RSS');
+  const xCount = scrapedPosts.filter((p) => p.platform === 'x').length;
+  const redditCount = scrapedPosts.filter((p) => p.platform === 'reddit').length;
+  if (xCount > 0) parts.push('X via Scrape.do');
+  if (redditCount > 0) parts.push('Reddit via Scrape.do');
+  return parts.length > 0 ? parts.join(' + ') : 'Keyword Analysis';
+}
+```
+
+## Orchestration Function
+
+### streamSummary
+
+<ParamField body="streamSummary" type="async function">
+  Master orchestrator that fetches data from all sources, analyzes it, and streams the summary.
+</ParamField>
+
+```typescript
+async function streamSummary({
+  topic,
+  onDelta,
+  onDone,
+  onError,
+  onEmotionsReady,
+  onScrapeDoResults
+}: {
+  topic: TopicCard;
+  onDelta: (chunk: string) => void;
+  onDone: () => void;
+  onError: (e: string) => void;
+  onEmotionsReady: (emotions: EmotionData[], count: number, source: string) => void;
+  onScrapeDoResults?: (results: ScrapeDoResult[]) => void;
+}): Promise<void>
+```
+
+**Workflow:**
+
+1. **Fetch data in parallel** (lines 462-473):
+   - YouTube comments via YouTube Data API v3
+   - Google News headlines via RSS
+   - X and Reddit posts via Scrape.do
+
+2. **Analyze all data** (line 483):
+   ```typescript
+   const analysis = analyzeTopicFully(topic.title, rssHeadlines, comments, scrapedPosts, scrapeDoResults);
+   ```
+
+3. **Emit emotions immediately** (lines 500-505):
+   ```typescript
+   onEmotionsReady(
+     analysis.emotions as EmotionData[],
+     analysis.commentCount,
+     sourceMap[analysis.dataSource] || 'Multiple Sources'
+   );
+   ```
+
+4. **Generate summary with LLM or local fallback** (lines 512-570)
+
+**Example Usage:**
+
+```typescript
+streamSummary({
+  topic: selectedTopic,
+  onDelta: (chunk) => setSummary((prev) => prev + chunk),
+  onDone: () => setIsStreaming(false),
+  onError: (err) => { setIsStreaming(false); setSummaryError(err); },
+  onEmotionsReady: (emotions, count, source) => {
+    setLiveEmotions(emotions);
+    setEmotionCount(count);
+    setEmotionSource(source);
+  },
+  onScrapeDoResults: (results) => setScrapeDoResults(results),
+});
+```
+
+## Performance Considerations
+
+### Parallel Data Fetching
+
+All data sources are fetched in parallel using `Promise.allSettled`:
+
+```typescript
+const [ytResult, headlinesResult, scrapeResult] = await Promise.allSettled([
+  fetchYouTubeComments(topic.title),
+  fetchNewsHeadlines(topic.title),
+  fetchAllScrapeDoSources(topic.title, SCRAPE_TOKEN, ['x', 'reddit']),
+]);
+```
+
+This ensures:
+- No blocking on slow sources
+- Failures in one source don't break others
+- Maximum throughput
+
+### Regex Optimization
+
+Keyword matching escapes special regex characters:
+
+```typescript
+const re = new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+```
+
+## Extending the Engine
+
+### Adding New Emotions
+
+1. Add keywords to `EMOTION_KEYWORDS`:
+   ```typescript
+   const EMOTION_KEYWORDS: Record<string, string[]> = {
+     // ...
+     anticipation: ['eager', 'excited', 'looking forward', 'cant wait', 'upcoming'],
+   };
+   ```
+
+2. Update the `Emotion` type in `mockData.ts`:
+   ```typescript
+   export type Emotion = 'joy' | 'anger' | 'sadness' | 'fear' | 'surprise' | 'disgust' | 'anticipation';
+   ```
+
+### Adding New Themes
+
+1. Add theme configuration to `TOPIC_THEMES`:
+   ```typescript
+   const TOPIC_THEMES: Record<string, { keywords: string[]; templates: string[] }> = {
+     // ...
+     sports: {
+       keywords: ['football', 'soccer', 'championship', 'tournament', 'world cup', 'olympics'],
+       templates: [
+         'Fans are divided on the team's performance and coaching decisions',
+         'Injury concerns are dominating pre-match discussions',
+         'Historical rivalries are adding extra tension to upcoming fixtures',
+       ],
+     },
+   };
+   ```
+
+### Custom Sentiment Rules
+
+Modify sentiment classification thresholds:
+
+```typescript
+const sentiment: 'positive' | 'negative' | 'mixed' = 
+  negCount > posCount * 2.0 ? 'negative' :  // More strict
+  posCount > negCount * 2.0 ? 'positive' : 'mixed';
+```
+
+## Related Documentation
+
+- [Scrape.do Provider](/services/scrape-do-provider) — Fetches X and Reddit posts for analysis
+- [YouTube Data Source](/sources/youtube) — Fetches YouTube comments and video metadata
+- [Data Sources Overview](/sources/overview) — Complete guide to all data sources
+- [Emotion Classification Feature](/features/emotion-classification) — User-facing emotion analysis feature

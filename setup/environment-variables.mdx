@@ -1,0 +1,300 @@
+---
+title: Environment Variables
+description: Complete guide to configuring environment variables for SENTi-radar
+---
+
+SENTi-radar uses environment variables to configure API keys, database connections, and third-party integrations. This guide covers all required and optional environment variables.
+
+## Quick Setup
+
+<Steps>
+  <Step title="Copy the example file">
+    Create your local environment file from the template:
+    
+    ```bash
+    cp .env.example .env
+    ```
+  </Step>
+
+  <Step title="Configure required variables">
+    At minimum, set your Supabase credentials and Scrape.do token:
+    
+    ```bash
+    VITE_SUPABASE_URL=https://your-project.supabase.co
+    VITE_SUPABASE_PUBLISHABLE_KEY=your-supabase-anon-key
+    VITE_SCRAPE_TOKEN=your-scrape-do-token
+    ```
+  </Step>
+
+  <Step title="Add optional API keys">
+    Configure additional services for enhanced functionality:
+    
+    ```bash
+    VITE_YOUTUBE_API_KEY=your-youtube-data-api-key
+    VITE_GEMINI_API_KEY=your-gemini-api-key
+    VITE_GROQ_API_KEY=your-groq-api-key
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  Never commit your `.env` file to version control. The `.gitignore` file already excludes it, but always double-check before pushing code.
+</Warning>
+
+## Client-Side Variables
+
+These variables are prefixed with `VITE_` and are bundled into your frontend application. They're exposed to the browser, so never use secret keys here.
+
+### Required Variables
+
+<ParamField path="VITE_SUPABASE_URL" type="string" required>
+  Your Supabase project URL. Find this in your Supabase project settings under **Project Settings → API**.
+  
+  **Example:** `https://owrqiailcuwlzxeekhms.supabase.co`
+</ParamField>
+
+<ParamField path="VITE_SUPABASE_PUBLISHABLE_KEY" type="string" required>
+  Supabase anonymous/public key (safe to expose in browser). Find this in **Project Settings → API** as the `anon` `public` key.
+  
+  **Example:** `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`
+</ParamField>
+
+### Recommended Variables
+
+<ParamField path="VITE_SCRAPE_TOKEN" type="string" default="none">
+  **Scrape.do API token** — enables live X (Twitter) and Reddit data scraping.
+  
+  - **Get your token:** [scrape.do](https://scrape.do/)
+  - **Used by:** `TopicDetail.tsx` (client-side) and `fetch-twitter` edge function
+  - **Without this:** The app falls back to YouTube, Parallel.ai (if configured), or algorithmic generation
+  
+  **Example:** `abc123def456scrapetoken789`
+</ParamField>
+
+### Optional Variables
+
+<ParamField path="VITE_YOUTUBE_API_KEY" type="string" default="none">
+  YouTube Data API v3 key for fetching video titles and comments.
+  
+  - **Get your key:** [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials
+  - **Enable:** YouTube Data API v3
+  - **Used by:** Client-side YouTube search and `fetch-youtube` edge function
+  
+  **Example:** `AIzaSyDxxxxxxxxxxxxxxxxxxxxxxxxxxx`
+</ParamField>
+
+<ParamField path="VITE_GEMINI_API_KEY" type="string" default="none">
+  Google Gemini API key for streaming AI summaries and sentiment analysis.
+  
+  - **Get your key:** [Google AI Studio](https://ai.google.dev/)
+  - **Model used:** `gemini-1.5-flash`
+  - **Fallback:** Local keyword-based analysis engine (always available)
+  
+  **Example:** `AIzaSyCxxxxxxxxxxxxxxxxxxxxxxxx`
+</ParamField>
+
+<ParamField path="VITE_GROQ_API_KEY" type="string" default="none">
+  Groq API key for secondary LLM streaming summaries (alternative to Gemini).
+  
+  - **Get your key:** [Groq Console](https://console.groq.com/)
+  - **Used by:** Client-side AI summary generation as a fallback option
+  
+  **Example:** `gsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`
+</ParamField>
+
+<Note>
+  The app uses a guaranteed local keyword-based analysis engine as a fallback when no LLM keys are provided. AI keys enhance accuracy but are not required for basic functionality.
+</Note>
+
+## Edge Function Secrets
+
+These variables are **server-side only** and must be set via Supabase CLI. They are never exposed to the browser.
+
+<Warning>
+  **Do NOT add these to your `.env` file.** Set them using the Supabase CLI:
+  
+  ```bash
+  supabase secrets set SCRAPE_DO_TOKEN=your-token
+  supabase secrets set GEMINI_API_KEY=your-key
+  ```
+</Warning>
+
+### Setting Secrets
+
+<CodeGroup>
+```bash Local Development
+# Set individual secrets
+supabase secrets set SCRAPE_DO_TOKEN=your-scrape-do-token
+supabase secrets set GEMINI_API_KEY=your-gemini-api-key
+supabase secrets set YOUTUBE_API_KEY=your-youtube-key
+supabase secrets set PARALLEL_API_KEY=your-parallel-key
+
+# Set Supabase credentials
+supabase secrets set SUPABASE_URL=https://your-project.supabase.co
+supabase secrets set SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+```
+
+```bash Production
+# Link to production project first
+supabase link --project-ref your-project-ref
+
+# Then set secrets for production
+supabase secrets set --project-ref your-project-ref SCRAPE_DO_TOKEN=your-token
+supabase secrets set --project-ref your-project-ref GEMINI_API_KEY=your-key
+```
+
+```bash Verify Secrets
+# List all configured secrets
+supabase secrets list
+
+# Unset a secret
+supabase secrets unset SCRAPE_DO_TOKEN
+```
+</CodeGroup>
+
+### Secret Variables Reference
+
+<ParamField path="SCRAPE_DO_TOKEN" type="string">
+  Scrape.do API token used by the `fetch-twitter` edge function for server-side scraping.
+  
+  **Functions using this:**
+  - `fetch-twitter` (primary data source)
+</ParamField>
+
+<ParamField path="PARALLEL_API_KEY" type="string">
+  Parallel.ai API key for fallback social search when Scrape.do is unavailable.
+  
+  **Functions using this:**
+  - `fetch-twitter` (secondary fallback)
+</ParamField>
+
+<ParamField path="YOUTUBE_API_KEY" type="string">
+  YouTube Data API v3 key for server-side video and comment fetching.
+  
+  **Functions using this:**
+  - `fetch-youtube`
+  - `fetch-twitter` (tertiary fallback)
+</ParamField>
+
+<ParamField path="GEMINI_API_KEY" type="string">
+  Google Gemini API key for server-side sentiment analysis and AI summary generation.
+  
+  **Functions using this:**
+  - `analyze-sentiment` (primary analysis engine)
+  - `generate-insights`
+  - `analyze-topic`
+</ParamField>
+
+<ParamField path="SUPABASE_URL" type="string" required>
+  Your Supabase project URL (same as `VITE_SUPABASE_URL` but for edge functions).
+  
+  **Example:** `https://owrqiailcuwlzxeekhms.supabase.co`
+</ParamField>
+
+<ParamField path="SUPABASE_SERVICE_ROLE_KEY" type="string" required>
+  Supabase service role key with elevated permissions for database operations in edge functions.
+  
+  <Warning>
+    This key bypasses Row Level Security (RLS). Never expose it in client-side code.
+  </Warning>
+  
+  Find this in **Supabase Project Settings → API** as the `service_role` `secret` key.
+</ParamField>
+
+## Environment File Structure
+
+Here's the complete `.env.example` structure with annotations:
+
+```bash
+# ──────────────────────────────────────────────────────────────────────────────
+# Supabase (required for database + edge functions)
+# ──────────────────────────────────────────────────────────────────────────────
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your-supabase-anon-key
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Scrape.do  (required for live X/Twitter and Reddit scraping)
+# Get your free API token at https://scrape.do/
+# Used by: TopicDetail.tsx (client-side) and fetch-twitter edge function
+# ──────────────────────────────────────────────────────────────────────────────
+VITE_SCRAPE_TOKEN=your-scrape-do-token
+
+# ──────────────────────────────────────────────────────────────────────────────
+# YouTube Data API v3  (optional — for fetching video titles & comments)
+# Get a key at https://console.cloud.google.com/
+# ──────────────────────────────────────────────────────────────────────────────
+VITE_YOUTUBE_API_KEY=your-youtube-data-api-key
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Gemini AI  (optional — for streaming AI summaries; falls back to local)
+# Get a key at https://ai.google.dev/
+# ──────────────────────────────────────────────────────────────────────────────
+VITE_GEMINI_API_KEY=your-gemini-api-key
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Groq  (optional — secondary LLM for streaming summaries)
+# Get a key at https://console.groq.com/
+# ──────────────────────────────────────────────────────────────────────────────
+VITE_GROQ_API_KEY=your-groq-api-key
+```
+
+## Validation
+
+After configuring your environment variables, verify they're loaded correctly:
+
+```bash
+npm run dev
+```
+
+Check the browser console for:
+- Supabase connection status
+- API key availability warnings
+- Scrape.do token validation
+
+<Note>
+  Missing optional API keys will trigger fallback mechanisms. The app degrades gracefully:
+  
+  1. **No Scrape.do token:** Falls back to Parallel.ai → YouTube → Algorithmic generation
+  2. **No AI keys:** Uses local keyword-based sentiment analysis
+  3. **No YouTube key:** Skips video comment analysis
+</Note>
+
+## Troubleshooting
+
+### Variables not loading
+
+1. Ensure your `.env` file is in the project root (same directory as `package.json`)
+2. Restart the dev server after changing `.env`
+3. Check for typos in variable names (they're case-sensitive)
+
+### Supabase connection fails
+
+1. Verify your project URL doesn't have trailing slashes
+2. Confirm you're using the `anon` key, not the `service_role` key for client variables
+3. Check your Supabase project is active and not paused
+
+### Scrape.do returns errors
+
+1. Verify your token is active at [scrape.do dashboard](https://scrape.do/dashboard)
+2. Check your credit balance
+3. Review rate limits and quota usage
+
+### Edge function secrets not working
+
+1. Ensure you've deployed your functions: `supabase functions deploy`
+2. Verify secrets are set: `supabase secrets list`
+3. Check function logs: `supabase functions logs fetch-twitter`
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Supabase Setup" icon="database" href="./supabase-setup">
+    Configure your Supabase project and database schema
+  </Card>
+  <Card title="Scrape.do Integration" icon="globe" href="./scrape-do-integration">
+    Set up live social media scraping
+  </Card>
+  <Card title="API Keys" icon="key" href="./api-keys">
+    Get API keys for YouTube, Gemini, and Groq
+  </Card>
+</CardGroup>

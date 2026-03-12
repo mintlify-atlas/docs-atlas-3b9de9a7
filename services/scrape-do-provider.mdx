@@ -1,0 +1,580 @@
+---
+title: Scrape.do Provider
+description: Universal data provider for fetching live content from X (Twitter) and Reddit via Scrape.do's API with JavaScript rendering and proxy support
+---
+
+# Scrape.do Provider
+
+The Scrape.do Provider (`scrapeDoProvider.ts`) is a modular service that fetches live social media content from X (Twitter) and Reddit using [Scrape.do](https://scrape.do)'s API. It supports JavaScript rendering, residential proxies, and full HTML access to heavy client-side pages.
+
+## Architecture
+
+The provider is designed to be extensible. To add new platforms (e.g., HackerNews, LinkedIn), simply:
+
+1. Create a new provider function (e.g., `fetchHackerNewsPosts`)
+2. Ensure it accepts a `token` and `options` parameter
+3. Return a `ScrapeDoResult` object
+4. Add it to the `fetchAllScrapeDoSources` aggregator
+
+## Core Types
+
+### ScrapedPost
+
+<ParamField body="ScrapedPost" type="object">
+  Represents a single scraped post from any platform.
+  
+  <ParamField body="id" type="string" required>
+    Unique identifier for the post (e.g., `x_0`, `reddit_abc123`)
+  </ParamField>
+  
+  <ParamField body="text" type="string" required>
+    The post content text (HTML entities decoded, tags stripped)
+  </ParamField>
+  
+  <ParamField body="author" type="string" required>
+    Username or handle (e.g., `@user`, `u/redditor`)
+  </ParamField>
+  
+  <ParamField body="platform" type="'x' | 'reddit' | 'web'" required>
+    Source platform identifier
+  </ParamField>
+  
+  <ParamField body="url" type="string" required>
+    Link to the original post or search page
+  </ParamField>
+  
+  <ParamField body="postedAt" type="string" required>
+    ISO 8601 timestamp (e.g., `2026-03-12T14:30:00.000Z`)
+  </ParamField>
+</ParamField>
+
+```typescript
+export interface ScrapedPost {
+  id: string;
+  text: string;
+  author: string;
+  platform: "x" | "reddit" | "web";
+  url: string;
+  postedAt: string;
+}
+```
+
+### ScrapeDoOptions
+
+<ParamField body="ScrapeDoOptions" type="object">
+  Configuration options for Scrape.do API requests.
+  
+  <ParamField body="render" type="boolean" default="true">
+    Enable JavaScript rendering (essential for X and Reddit)
+  </ParamField>
+  
+  <ParamField body="super" type="boolean" default="false">
+    Use residential/mobile proxies to bypass datacenter detection
+  </ParamField>
+  
+  <ParamField body="waitUntil" type="'networkidle0' | 'networkidle2' | 'load' | 'domcontentloaded'" default="'networkidle0'">
+    Wait strategy before returning HTML
+  </ParamField>
+  
+  <ParamField body="geoCode" type="string">
+    ISO country code for geo-targeted results (e.g., `'us'`, `'gb'`, `'in'`)
+  </ParamField>
+</ParamField>
+
+```typescript
+export interface ScrapeDoOptions {
+  render?: boolean;
+  super?: boolean;
+  waitUntil?: "networkidle0" | "networkidle2" | "load" | "domcontentloaded";
+  geoCode?: string;
+}
+```
+
+### ScrapeDoResult
+
+<ResponseField name="ScrapeDoResult" type="object">
+  Result object returned by all provider functions.
+  
+  <ResponseField name="posts" type="ScrapedPost[]" required>
+    Array of successfully scraped posts
+  </ResponseField>
+  
+  <ResponseField name="source" type="string" required>
+    Human-readable label (e.g., `'X via Scrape.do'`, `'Reddit via Scrape.do'`)
+  </ResponseField>
+  
+  <ResponseField name="status" type="'success' | 'partial' | 'error'" required>
+    - `success`: Posts retrieved successfully
+    - `partial`: Some data retrieved but incomplete
+    - `error`: Request failed
+  </ResponseField>
+  
+  <ResponseField name="error" type="string">
+    Error message if `status` is `error` or `partial`
+  </ResponseField>
+</ResponseField>
+
+```typescript
+export type ScrapeDoStatus = "success" | "partial" | "error";
+
+export interface ScrapeDoResult {
+  posts: ScrapedPost[];
+  source: string;
+  status: ScrapeDoStatus;
+  error?: string;
+}
+```
+
+## Helper Functions
+
+### buildApiUrl
+
+<ParamField body="buildApiUrl" type="function">
+  Constructs the Scrape.do proxy URL for a given target URL and options.
+</ParamField>
+
+```typescript
+export function buildApiUrl(
+  token: string,
+  targetUrl: string,
+  options: ScrapeDoOptions = {}
+): string
+```
+
+**Parameters:**
+- `token` (string): Scrape.do API token (from `VITE_SCRAPE_TOKEN`)
+- `targetUrl` (string): The URL to scrape (e.g., `https://x.com/search?q=...`)
+- `options` (ScrapeDoOptions): Optional configuration
+
+**Returns:** Full Scrape.do API URL with query parameters
+
+**Example:**
+
+```typescript
+const apiUrl = buildApiUrl(
+  "your-token",
+  "https://x.com/search?q=AI%20regulation&f=live",
+  { render: true, waitUntil: "networkidle0", geoCode: "us" }
+);
+// https://api.scrape.do?token=your-token&url=...&render=true&waitUntil=networkidle0&geoCode=us
+```
+
+### decodeEntities
+
+<ParamField body="decodeEntities" type="function">
+  Decodes common HTML entities in scraped text.
+</ParamField>
+
+```typescript
+export function decodeEntities(text: string): string
+```
+
+**Parameters:**
+- `text` (string): Raw text with HTML entities
+
+**Returns:** Decoded text
+
+**Example:**
+
+```typescript
+const decoded = decodeEntities("Tech &amp; Innovation &lt;2026&gt;");
+// "Tech & Innovation <2026>"
+```
+
+### stripTags
+
+<ParamField body="stripTags" type="function">
+  Removes all HTML tags from a string and normalizes whitespace.
+</ParamField>
+
+```typescript
+export function stripTags(html: string): string
+```
+
+**Example:**
+
+```typescript
+const clean = stripTags("<p>Breaking: <strong>New policy</strong> announced</p>");
+// "Breaking: New policy announced"
+```
+
+## Platform-Specific Parsers
+
+### parseXHtml
+
+<ParamField body="parseXHtml" type="function">
+  Parses rendered X.com search HTML into ScrapedPost objects.
+</ParamField>
+
+```typescript
+export function parseXHtml(html: string, query: string): ScrapedPost[]
+```
+
+**Strategy:**
+
+1. **Primary**: Extract tweets from `<article data-testid="tweet">` elements with `<div data-testid="tweetText">`
+2. **Fallback**: Grab `<span lang="en">` elements longer than 20 characters
+
+**Parameters:**
+- `html` (string): Rendered HTML from X.com
+- `query` (string): Search query (for URL construction)
+
+**Returns:** Array of up to 20 ScrapedPost objects
+
+**Example:**
+
+```typescript
+const posts = parseXHtml(htmlFromXSearch, "climate change");
+console.log(posts[0]);
+// {
+//   id: "x_0",
+//   text: "Urgent action needed on climate...",
+//   author: "@climateactivist",
+//   platform: "x",
+//   url: "https://x.com/search?q=climate%20change&f=live",
+//   postedAt: "2026-03-12T10:00:00.000Z"
+// }
+```
+
+### parseRedditJson
+
+<ParamField body="parseRedditJson" type="function">
+  Parses Reddit's JSON search API response into ScrapedPost objects.
+</ParamField>
+
+```typescript
+export function parseRedditJson(data: unknown, query: string): ScrapedPost[]
+```
+
+**Parameters:**
+- `data` (unknown): Parsed JSON from `reddit.com/search.json`
+- `query` (string): Search query
+
+**Returns:** Array of ScrapedPost objects
+
+**Example:**
+
+```typescript
+const json = await res.json();
+const posts = parseRedditJson(json, "AI regulation");
+console.log(posts[0]);
+// {
+//   id: "reddit_abc123",
+//   text: "New AI regulation bill discussion...",
+//   author: "u/policyexpert",
+//   platform: "reddit",
+//   url: "https://www.reddit.com/...",
+//   postedAt: "2026-03-12T09:45:00.000Z"
+// }
+```
+
+## Provider Functions
+
+### fetchXPosts
+
+<ParamField body="fetchXPosts" type="async function">
+  Fetches live X (Twitter) posts for a query via Scrape.do.
+</ParamField>
+
+```typescript
+export async function fetchXPosts(
+  query: string,
+  token: string,
+  options: ScrapeDoOptions = {}
+): Promise<ScrapeDoResult>
+```
+
+**Parameters:**
+- `query` (string): Search term (e.g., `"AI regulation"`)
+- `token` (string): Scrape.do API token
+- `options` (ScrapeDoOptions): Optional overrides
+
+**Returns:** ScrapeDoResult with X posts
+
+**Default behavior:**
+- JavaScript rendering enabled (`render: true`)
+- Waits for network idle (`waitUntil: "networkidle0"`)
+- Targets live search results (`&f=live`)
+
+**Example:**
+
+```typescript
+const result = await fetchXPosts(
+  "climate summit",
+  process.env.VITE_SCRAPE_TOKEN,
+  { geoCode: "us" }
+);
+
+if (result.status === "success") {
+  console.log(`Fetched ${result.posts.length} X posts`);
+  result.posts.forEach(post => console.log(post.text));
+} else {
+  console.error(result.error);
+}
+```
+
+**Error handling:**
+
+<CodeGroup>
+
+```typescript No token
+if (!token) {
+  return {
+    posts: [],
+    source: "X via Scrape.do",
+    status: "error",
+    error: "VITE_SCRAPE_TOKEN not configured"
+  };
+}
+```
+
+```typescript HTTP errors
+if (!res.ok) {
+  return {
+    posts: [],
+    source: "X via Scrape.do",
+    status: "error",
+    error: `Scrape.do returned HTTP ${res.status}`
+  };
+}
+```
+
+```typescript No posts parsed
+if (posts.length === 0) {
+  return {
+    posts: [],
+    source: "X via Scrape.do",
+    status: "partial",
+    error: "No posts parsed from X HTML"
+  };
+}
+```
+
+</CodeGroup>
+
+### fetchRedditPosts
+
+<ParamField body="fetchRedditPosts" type="async function">
+  Fetches Reddit posts via Scrape.do using Reddit's JSON API.
+</ParamField>
+
+```typescript
+export async function fetchRedditPosts(
+  query: string,
+  token: string,
+  options: ScrapeDoOptions = {}
+): Promise<ScrapeDoResult>
+```
+
+**Parameters:**
+- `query` (string): Search term
+- `token` (string): Scrape.do API token
+- `options` (ScrapeDoOptions): Optional overrides
+
+**Returns:** ScrapeDoResult with Reddit posts
+
+**Default behavior:**
+- JavaScript rendering disabled (`render: false`) — uses JSON endpoint
+- Sorts by new (`&sort=new`)
+- Fetches up to 25 posts (`&limit=25`)
+
+<Note>
+  Reddit's JSON endpoint is more reliable than HTML parsing, yet still benefits from Scrape.do's residential proxies when Reddit blocks datacenter IPs.
+</Note>
+
+**Example:**
+
+```typescript
+const result = await fetchRedditPosts(
+  "SaaS tools",
+  process.env.VITE_SCRAPE_TOKEN
+);
+
+if (result.status === "success") {
+  console.log(`Reddit posts: ${result.posts.length}`);
+} else if (result.status === "partial") {
+  console.warn(result.error); // e.g., "Reddit returned non-JSON (may require super=true)"
+}
+```
+
+**Error handling:**
+
+```typescript
+try {
+  data = JSON.parse(text);
+} catch {
+  return {
+    posts: [],
+    source: "Reddit via Scrape.do",
+    status: "partial",
+    error: "Reddit returned non-JSON (may require super=true)"
+  };
+}
+```
+
+## Aggregated Provider
+
+### fetchAllScrapeDoSources
+
+<ParamField body="fetchAllScrapeDoSources" type="async function">
+  Fetches from all requested sources in parallel and returns merged results.
+</ParamField>
+
+```typescript
+export async function fetchAllScrapeDoSources(
+  query: string,
+  token: string,
+  sources: Array<"x" | "reddit"> = ["x", "reddit"],
+  options: ScrapeDoOptions = {}
+): Promise<{ results: ScrapeDoResult[]; posts: ScrapedPost[] }>
+```
+
+**Parameters:**
+- `query` (string): Search term
+- `token` (string): Scrape.do API token
+- `sources` (Array): Platforms to query (default: `["x", "reddit"]`)
+- `options` (ScrapeDoOptions): Applied to all sources
+
+**Returns:**
+- `results` (ScrapeDoResult[]): Per-source results with status/error info
+- `posts` (ScrapedPost[]): Flattened array of all posts from all sources
+
+**Example:**
+
+```typescript
+const { results, posts } = await fetchAllScrapeDoSources(
+  "AI regulation",
+  process.env.VITE_SCRAPE_TOKEN!,
+  ["x", "reddit"],
+  { geoCode: "us", super: true }
+);
+
+console.log(`Total posts: ${posts.length}`);
+
+results.forEach(result => {
+  if (result.status === "success") {
+    console.log(`✓ ${result.source}: ${result.posts.length} posts`);
+  } else {
+    console.error(`✗ ${result.source}: ${result.error}`);
+  }
+});
+```
+
+**Error resilience:**
+
+The function uses `Promise.allSettled` to ensure one source failure doesn't break the entire request:
+
+```typescript
+const settled = await Promise.allSettled(fetchers);
+const results: ScrapeDoResult[] = settled.map((r, i) => {
+  if (r.status === "fulfilled") return r.value;
+  const label = sources[i] === "x" ? "X via Scrape.do" : "Reddit via Scrape.do";
+  return {
+    posts: [],
+    source: label,
+    status: "error" as const,
+    error: String(r.reason)
+  };
+});
+```
+
+## Usage in Application
+
+From `TopicDetail.tsx` (lines 462-480):
+
+```typescript
+// Fetch YouTube comments + Google News + Scrape.do (X & Reddit) in parallel
+const [ytResult, headlinesResult, scrapeResult] = await Promise.allSettled([
+  fetchYouTubeComments(topic.title),
+  fetchNewsHeadlines(topic.title),
+  fetchAllScrapeDoSources(topic.title, SCRAPE_TOKEN, ['x', 'reddit']),
+]);
+
+const { results: scrapeDoResults, posts: scrapedPosts } = scrapeResult.status === 'fulfilled'
+  ? scrapeResult.value
+  : { results: [], posts: [] };
+
+console.log(`Data: ${ytCount} YT comments, ${rssHeadlines.length} headlines, ${scrapedPosts.length} scraped posts (X/Reddit)`);
+
+// Notify UI of Scrape.do per-source status (for status chips / error display)
+if (onScrapeDoResults && scrapeDoResults.length > 0) {
+  onScrapeDoResults(scrapeDoResults);
+}
+
+// Step 2: Analyze everything together
+const analysis = analyzeTopicFully(topic.title, rssHeadlines, comments, scrapedPosts, scrapeDoResults);
+```
+
+## Configuration
+
+### Environment Variables
+
+<ParamField body="VITE_SCRAPE_TOKEN" type="string" required>
+  Scrape.do API token. Obtain from [scrape.do](https://scrape.do).
+</ParamField>
+
+```bash .env
+VITE_SCRAPE_TOKEN=your_scrape_do_api_token_here
+```
+
+<Note>
+  **Security Note:** `VITE_` prefixed variables are embedded in the client-side JS bundle and visible in browser DevTools. For production, move Scrape.do calls to Supabase Edge Functions and use server-side secrets.
+</Note>
+
+## Best Practices
+
+### Rate Limiting
+
+Scrape.do has rate limits based on your plan. Use `Promise.allSettled` to fetch multiple sources in parallel without blocking on failures:
+
+```typescript
+const { results, posts } = await fetchAllScrapeDoSources(
+  query,
+  token,
+  ["x", "reddit"]
+);
+```
+
+### Geo-Targeting
+
+Use `geoCode` for region-specific results:
+
+```typescript
+const usResults = await fetchXPosts("election", token, { geoCode: "us" });
+const ukResults = await fetchXPosts("election", token, { geoCode: "gb" });
+```
+
+### Proxy Escalation
+
+If you encounter blocks, enable residential proxies:
+
+```typescript
+const result = await fetchRedditPosts(query, token, { super: true });
+```
+
+### Error Handling Pattern
+
+```typescript
+const result = await fetchXPosts(query, token);
+
+switch (result.status) {
+  case "success":
+    console.log(`✓ ${result.posts.length} posts`);
+    break;
+  case "partial":
+    console.warn(`⚠ Partial data: ${result.error}`);
+    // Still use result.posts if available
+    break;
+  case "error":
+    console.error(`✗ Failed: ${result.error}`);
+    // Fallback to cached data or show error to user
+    break;
+}
+```
+
+## Related Documentation
+
+- [Sentiment Engine](/services/sentiment-engine) — Analyzes emotion and sentiment from scraped posts
+- [YouTube Data Source](/sources/youtube) — Fetches YouTube comments for sentiment analysis
+- [X (Twitter) Data Source](/sources/twitter-x) — Documentation on X/Twitter scraping via Scrape.do
+- [Reddit Data Source](/sources/reddit) — Documentation on Reddit scraping via Scrape.do

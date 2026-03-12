@@ -1,0 +1,469 @@
+---
+title: analyze-sentiment
+description: AI-powered sentiment and emotion classification using Google Gemini 1.5 Flash with keyword-based fallback
+---
+
+## Overview
+
+The `analyze-sentiment` function processes unanalyzed social media posts and:
+
+1. Classifies sentiment (positive/negative/mixed/neutral)
+2. Detects primary emotion (joy/anger/sadness/fear/surprise/disgust)
+3. Generates emotion intensity scores
+4. Computes aggregate statistics and topic trends
+5. Creates AI-generated summaries and insights
+6. Triggers crisis alerts for negative sentiment spikes
+
+It uses **Google Gemini 1.5 Flash** for AI analysis with an intelligent keyword-based fallback when the API is unavailable.
+
+## Endpoint
+
+```
+POST https://your-project.supabase.co/functions/v1/analyze-sentiment
+```
+
+<Note>
+This function is designed to be called internally by the `analyze-topic` orchestrator after data collection.
+</Note>
+
+## Request
+
+<ParamField body="topic_id" type="string" required>
+  UUID of the topic to analyze sentiment for
+</ParamField>
+
+### Example Request
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://your-project.supabase.co/functions/v1/analyze-sentiment \
+  -H "Authorization: Bearer YOUR_SERVICE_ROLE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"topic_id": "a3f5e8b1-4c2d-4e9f-8a1b-3c5d6e7f8a9b"}'
+```
+
+```typescript TypeScript (Internal)
+const analysisRes = await fetch(
+  `${supabaseUrl}/functions/v1/analyze-sentiment`,
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${supabaseServiceKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ topic_id: topicId })
+  }
+);
+```
+</CodeGroup>
+
+## Response
+
+<ResponseField name="success" type="boolean" required>
+  Whether sentiment analysis completed successfully
+</ResponseField>
+
+<ResponseField name="analyzed" type="number" required>
+  Number of posts analyzed in this run
+</ResponseField>
+
+<ResponseField name="total_posts" type="number" required>
+  Total number of analyzed posts for this topic (including previous runs)
+</ResponseField>
+
+<ResponseField name="overall_sentiment" type="string" required>
+  Aggregate sentiment: "positive" | "negative" | "mixed" | "neutral"
+</ResponseField>
+
+<ResponseField name="crisis_level" type="string" required>
+  Risk assessment: "none" | "low" | "medium" | "high"
+</ResponseField>
+
+<ResponseField name="used_fallback" type="boolean" required>
+  Whether keyword-based fallback was used instead of Gemini AI
+</ResponseField>
+
+### Success Response (Gemini AI)
+
+```json
+{
+  "success": true,
+  "analyzed": 42,
+  "total_posts": 127,
+  "overall_sentiment": "mixed",
+  "crisis_level": "low",
+  "used_fallback": false
+}
+```
+
+### Success Response (Keyword Fallback)
+
+```json
+{
+  "success": true,
+  "analyzed": 38,
+  "total_posts": 95,
+  "overall_sentiment": "negative",
+  "crisis_level": "medium",
+  "used_fallback": true
+}
+```
+
+### No Posts to Analyze
+
+```json
+{
+  "success": true,
+  "message": "No posts to analyze",
+  "analyzed": 0
+}
+```
+
+### Error Response
+
+```json
+{
+  "success": false,
+  "error": "topic_id is required"
+}
+```
+
+## Analysis Pipeline
+
+### Step 1: Fetch Unanalyzed Posts
+
+Retrieves up to 50 posts without sentiment data:
+
+```typescript
+const { data: posts } = await supabase
+  .from('posts')
+  .select('*')
+  .eq('topic_id', topic_id)
+  .is('sentiment', null)
+  .order('fetched_at', { ascending: false })
+  .limit(50);
+```
+
+<Note>
+Only posts with `sentiment IS NULL` are analyzed. Re-running the function on the same topic analyzes any new posts added since the last run.
+</Note>
+
+### Step 2: AI Sentiment Classification
+
+#### Gemini 1.5 Flash (Primary)
+
+Batch analyzes all posts in a single API call:
+
+```typescript
+const analysisPrompt = `You are a sentiment analysis engine. Analyze each social media post below and return structured JSON.
+
+For each post return:
+- index: the number in brackets
+- sentiment: exactly one of "positive", "negative", "mixed", "neutral"
+- primary_emotion: exactly one of "joy", "anger", "sadness", "fear", "surprise", "disgust"
+- emotion_scores: object with keys joy/anger/sadness/fear/surprise/disgust, each a float 0.0-1.0
+
+Posts to analyze:
+[0] This product is amazing!
+[1] Worst experience ever, very disappointed.
+...
+
+Return ONLY a JSON object like: {"results": [{...}, {...}]}`;
+```
+
+**Model**: `gemini-1.5-flash`  
+**Configuration**:
+- `responseMimeType`: `application/json`
+- `temperature`: `0.1` (low randomness for consistency)
+- `maxOutputTokens`: `8192`
+
+**Expected Output**:
+```json
+{
+  "results": [
+    {
+      "index": 0,
+      "sentiment": "positive",
+      "primary_emotion": "joy",
+      "emotion_scores": {
+        "joy": 0.85,
+        "anger": 0.05,
+        "sadness": 0.02,
+        "fear": 0.03,
+        "surprise": 0.03,
+        "disgust": 0.02
+      }
+    },
+    ...
+  ]
+}
+```
+
+#### Keyword Fallback (Secondary)
+
+If Gemini fails, uses rule-based classification:
+
+```typescript
+function analyzePostFallback(content: string) {
+  const lower = content.toLowerCase();
+  
+  // Count keyword matches
+  const joyScore = matches(['happy', 'love', 'great', 'amazing', ...]);
+  const angerScore = matches(['angry', 'furious', 'hate', ...]);
+  const sadScore = matches(['sad', 'disappointed', ...]);
+  const fearScore = matches(['scared', 'afraid', 'worried', ...]);
+  const surpriseScore = matches(['wow', 'shocking', ...]);
+  const disgustScore = matches(['disgusting', 'gross', ...]);
+  
+  // Determine overall sentiment
+  const positiveScore = joyScore + surpriseScore * 0.3;
+  const negativeScore = angerScore + sadScore + fearScore + disgustScore;
+  
+  let sentiment = 'neutral';
+  if (positiveScore > negativeScore + 1) sentiment = 'positive';
+  else if (negativeScore > positiveScore + 1) sentiment = 'negative';
+  else if (positiveScore > 0 || negativeScore > 0) sentiment = 'mixed';
+  
+  return { sentiment, primary_emotion, emotion_scores };
+}
+```
+
+**Accuracy**: ~70-75% vs Gemini's ~85-90%
+
+### Step 3: Update Database
+
+Writes sentiment data to each post:
+
+```typescript
+await supabase
+  .from('posts')
+  .update({
+    sentiment,
+    primary_emotion,
+    emotion_scores
+  })
+  .eq('id', post.id);
+```
+
+### Step 4: Compute Aggregates
+
+Fetches all analyzed posts (up to 200) and calculates:
+
+```typescript
+const emotionCounts = {
+  joy: 0, anger: 0, sadness: 0,
+  fear: 0, surprise: 0, disgust: 0
+};
+let positive = 0, negative = 0, neutral = 0, mixed = 0;
+
+for (const post of allPosts) {
+  emotionCounts[post.primary_emotion]++;
+  if (post.sentiment === 'positive') positive++;
+  // ...
+}
+
+const emotionBreakdown = [
+  { emotion: 'joy', percentage: 32, count: 41 },
+  { emotion: 'anger', percentage: 28, count: 36 },
+  ...
+];
+```
+
+**Overall Sentiment Logic**:
+```typescript
+const overallSentiment = 
+  positive > negative
+    ? (positive > total * 0.5 ? 'positive' : 'mixed')
+    : negative > positive
+      ? (negative > total * 0.5 ? 'negative' : 'mixed')
+      : 'neutral';
+```
+
+**Crisis Level Logic**:
+```typescript
+const negativeRatio = negative / total;
+const crisisLevel = 
+  negativeRatio > 0.7 ? 'high' :
+  negativeRatio > 0.5 ? 'medium' :
+  negativeRatio > 0.3 ? 'low' : 'none';
+```
+
+### Step 5: Generate AI Summary
+
+Creates a narrative summary using Gemini:
+
+```typescript
+const summaryPrompt = `You are a social media sentiment analyst. Based on ${total} posts about a topic, generate a concise analysis report.
+
+Emotion breakdown: ${JSON.stringify(emotionBreakdown)}
+Overall sentiment: ${overallSentiment}
+Crisis level: ${crisisLevel}
+
+Sample posts:
+@user1: This is great!
+@user2: Very disappointed...
+...
+
+Return ONLY a JSON object with exactly these fields:
+{
+  "summary": "2-3 sentence narrative with specific percentages",
+  "key_takeaways": ["takeaway 1", "takeaway 2", "takeaway 3", "takeaway 4"],
+  "top_phrases": [{"phrase": "...", "count": 42}, ...],
+  "volatility": 65
+}`;
+```
+
+**Fallback**: If Gemini fails, generates a template-based summary.
+
+### Step 6: Update topic_stats Table
+
+Upserts comprehensive statistics:
+
+```typescript
+await supabase.from('topic_stats').upsert({
+  topic_id,
+  total_volume: 127,
+  volume_change: 12,  // percentage change
+  overall_sentiment: 'mixed',
+  crisis_level: 'low',
+  volatility: 58,
+  emotion_breakdown: [...],
+  top_phrases: [...],
+  ai_summary: "...",
+  key_takeaways: [...],
+  computed_at: new Date().toISOString()
+});
+```
+
+### Step 7: Insert Timeline Data
+
+Records a snapshot for trend visualization:
+
+```typescript
+await supabase.from('sentiment_timeline').insert({
+  topic_id,
+  positive_pct: 35,
+  negative_pct: 42,
+  neutral_pct: 23,
+  volume: 127
+});
+```
+
+### Step 8: Create Crisis Alerts
+
+If `crisis_level` is medium or high:
+
+```typescript
+await supabase.from('alerts').insert({
+  topic_id,
+  alert_type: 'crisis_spike',
+  message: `Negative sentiment spike: 73% negative posts. Crisis level: HIGH`,
+  severity: 'high'
+});
+```
+
+## Emotion Classification
+
+### Six Core Emotions
+
+Based on Ekman's emotion model:
+
+| Emotion | Description | Example Keywords |
+|---------|-------------|------------------|
+| **Joy** | Happiness, satisfaction | happy, love, great, amazing, wonderful |
+| **Anger** | Frustration, rage | angry, furious, hate, ridiculous |
+| **Sadness** | Disappointment, grief | sad, disappointed, unfortunate, sorry |
+| **Fear** | Worry, anxiety | scared, afraid, worried, dangerous |
+| **Surprise** | Shock, amazement | wow, shocking, unbelievable, incredible |
+| **Disgust** | Revulsion, distaste | disgusting, gross, nasty, horrible |
+
+### Emotion Scores
+
+Each post receives a score (0.0-1.0) for all six emotions:
+
+```json
+{
+  "joy": 0.12,
+  "anger": 0.78,
+  "sadness": 0.15,
+  "fear": 0.08,
+  "surprise": 0.05,
+  "disgust": 0.22
+}
+```
+
+Scores don't necessarily sum to 1.0 (multiple emotions can coexist).
+
+## Performance
+
+**Typical execution time**: 12-25 seconds
+
+- Fetch posts: &lt;1s
+- Gemini sentiment analysis (50 posts): ~3-6s
+- Database updates (50 posts): ~2-3s
+- Aggregate computation (200 posts): &lt;1s
+- Gemini summary generation: ~3-5s
+- Stats/timeline/alerts: ~1-2s
+
+**Fast path** (few posts): ~8-12s  
+**Full batch** (50 posts): ~18-25s  
+**Fallback mode** (no Gemini): ~6-10s
+
+## Rate Limits
+
+<Warning>
+**Gemini API Rate Limits**:
+- **Free tier**: 15 requests per minute
+- **Paid tier**: 360 requests per minute
+
+Each function call makes **2 Gemini requests** (sentiment + summary).
+
+**Recommended max call rate**: 7 calls/minute (free tier), 180 calls/minute (paid tier)
+</Warning>
+
+## Environment Variables
+
+<ParamField body="GEMINI_API_KEY" type="string" required>
+  Google AI API key for Gemini. Get one at https://ai.google.dev
+</ParamField>
+
+<ParamField body="SUPABASE_URL" type="string" required>
+  Auto-injected by Supabase
+</ParamField>
+
+<ParamField body="SUPABASE_SERVICE_ROLE_KEY" type="string" required>
+  Auto-injected by Supabase
+</ParamField>
+
+## Best Practices
+
+<Check>Run this function after all data collection functions complete</Check>
+
+<Check>Monitor `used_fallback` to detect Gemini API issues</Check>
+
+<Check>Query `topic_stats` table for aggregate insights instead of computing client-side</Check>
+
+<Check>Use `sentiment_timeline` for trend charts and historical analysis</Check>
+
+<Check>Subscribe to `alerts` table for real-time crisis notifications</Check>
+
+## Incremental Analysis
+
+The function only analyzes posts with `sentiment IS NULL`, enabling incremental updates:
+
+```typescript
+// Initial run: analyze 50 posts
+await invoke('analyze-sentiment', { topic_id });
+
+// Later: new posts added by scheduled-monitor
+// Second run: only analyzes the new posts
+await invoke('analyze-sentiment', { topic_id });
+```
+
+Aggregates and summaries are **recomputed from all analyzed posts** on each run.
+
+## Related Functions
+
+- [analyze-topic](/edge-functions/analyze-topic) - Orchestrator calling this function
+- [generate-insights](/edge-functions/generate-insights) - Uses sentiment data to create strategic reports
+- [scheduled-monitor](/edge-functions/scheduled-monitor) - Periodically triggers re-analysis

@@ -1,0 +1,418 @@
+---
+title: scheduled-monitor
+description: Automated background monitoring system that re-analyzes active topics and triggers crisis alerts
+---
+
+## Overview
+
+The `scheduled-monitor` function provides automated continuous monitoring of active topics. It:
+
+1. Fetches all active topics from the database
+2. Re-runs the complete analysis pipeline for each topic
+3. Detects crisis-level sentiment changes
+4. Creates real-time alerts for negative sentiment spikes
+5. Logs monitoring summary to the alerts table
+
+This function is designed to be triggered by a **cron schedule** (e.g., every 6 hours) to keep sentiment data fresh.
+
+## Endpoint
+
+```
+POST https://your-project.supabase.co/functions/v1/scheduled-monitor
+```
+
+<Note>
+This function takes **no request body** and is typically invoked by Supabase's built-in cron scheduler, not by client applications.
+</Note>
+
+## Request
+
+No request body required. The function automatically processes all active topics.
+
+### Example Request
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://your-project.supabase.co/functions/v1/scheduled-monitor \
+  -H "Authorization: Bearer YOUR_SERVICE_ROLE_KEY" \
+  -H "Content-Type: application/json"
+```
+
+```typescript TypeScript (Manual Trigger)
+const { data, error } = await supabase.functions.invoke('scheduled-monitor');
+```
+</CodeGroup>
+
+## Response
+
+<ResponseField name="success" type="boolean" required>
+  Whether the monitoring run completed successfully
+</ResponseField>
+
+<ResponseField name="processed" type="number" required>
+  Number of active topics processed
+</ResponseField>
+
+<ResponseField name="results" type="array" required>
+  Array of per-topic results
+  <Expandable title="item properties">
+    <ResponseField name="topic_id" type="string">
+      UUID of the processed topic
+    </ResponseField>
+    <ResponseField name="title" type="string">
+      Display title of the topic
+    </ResponseField>
+    <ResponseField name="status" type="string">
+      "success" or "error"
+    </ResponseField>
+    <ResponseField name="error" type="string">
+      Error message if status is "error"
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "processed": 3,
+  "results": [
+    {
+      "topic_id": "a3f5e8b1-4c2d-4e9f-8a1b-3c5d6e7f8a9b",
+      "title": "iPhone 16 Launch",
+      "status": "success"
+    },
+    {
+      "topic_id": "b4g6f9c2-5d3e-5f0g-9b2c-4d6e7f8g9c0d",
+      "title": "Climate Summit 2026",
+      "status": "success"
+    },
+    {
+      "topic_id": "c5h7g0d3-6e4f-6g1h-0c3d-5e7f8g9h0d1e",
+      "title": "Election Debate",
+      "status": "error",
+      "error": "Topic not found"
+    }
+  ]
+}
+```
+
+### No Active Topics
+
+```json
+{
+  "success": true,
+  "message": "No active topics to monitor",
+  "processed": 0
+}
+```
+
+### Error Response
+
+```json
+{
+  "error": "Database connection failed"
+}
+```
+
+## Monitoring Workflow
+
+### Step 1: Fetch Active Topics
+
+Retrieves all topics marked as active:
+
+```typescript
+const { data: topics } = await supabase
+  .from('topics')
+  .select('id, title, query')
+  .eq('is_active', true);
+```
+
+<Note>
+Topics are marked as active when created by `analyze-topic`. You can manually deactivate topics by setting `is_active = false` in the database.
+</Note>
+
+### Step 2: Re-analyze Each Topic
+
+Calls the orchestrator function for each active topic:
+
+```typescript
+for (const topic of topics) {
+  const res = await fetch(`${supabaseUrl}/functions/v1/analyze-topic`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${supabaseServiceKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      query: topic.query,
+      title: topic.title
+    })
+  });
+}
+```
+
+This triggers the full pipeline:
+- Fetch new data from X/Twitter, Reddit, YouTube
+- Analyze sentiment of new posts
+- Update aggregates and statistics
+- Generate new AI summaries
+
+### Step 3: Fetch Updated Statistics
+
+Retrieves the latest `topic_stats` computed by `analyze-sentiment`:
+
+```typescript
+const { data: stats } = await supabase
+  .from('topic_stats')
+  .select('crisis_level, overall_sentiment, volatility')
+  .eq('topic_id', topic.id)
+  .order('computed_at', { ascending: false })
+  .limit(1)
+  .single();
+```
+
+### Step 4: Create Crisis Alerts
+
+Generates alerts based on severity thresholds:
+
+#### High Crisis Alert
+
+```typescript
+if (stats.crisis_level === 'high') {
+  await supabase.from('alerts').insert({
+    topic_id: topic.id,
+    alert_type: 'crisis_spike',
+    severity: 'high',
+    message: `🚨 Crisis spike detected for "${topic.title}". Volatility: ${stats.volatility}/100. Sentiment: ${stats.overall_sentiment}.`
+  });
+}
+```
+
+**Example Alert**:
+```json
+{
+  "topic_id": "...",
+  "alert_type": "crisis_spike",
+  "severity": "high",
+  "message": "🚨 Crisis spike detected for \"Product Recall\". Volatility: 87/100. Sentiment: negative.",
+  "created_at": "2026-03-12T14:30:00Z"
+}
+```
+
+#### Medium Crisis Alert
+
+```typescript
+if (stats.crisis_level === 'medium') {
+  await supabase.from('alerts').insert({
+    topic_id: topic.id,
+    alert_type: 'sentiment_shift',
+    severity: 'medium',
+    message: `⚠️ Elevated negativity for "${topic.title}". Crisis level: medium. Monitor closely.`
+  });
+}
+```
+
+#### Negative Sentiment + High Volatility
+
+```typescript
+if (stats.overall_sentiment === 'negative' && stats.volatility > 60) {
+  await supabase.from('alerts').insert({
+    topic_id: topic.id,
+    alert_type: 'negative_dominant',
+    severity: 'medium',
+    message: `📉 Negative sentiment dominant for "${topic.title}" with high volatility (${stats.volatility}/100).`
+  });
+}
+```
+
+### Step 5: Log Summary Alert
+
+Creates a summary alert after processing all topics:
+
+```typescript
+const successCount = results.filter(r => r.status === 'success').length;
+const errorCount = results.filter(r => r.status === 'error').length;
+
+if (errorCount > 0) {
+  await supabase.from('alerts').insert({
+    alert_type: 'scheduled_monitor',
+    severity: 'low',
+    message: `🔄 Scheduled scan complete: ${successCount} topics updated, ${errorCount} failed.`
+  });
+}
+```
+
+## Alert Types
+
+| Alert Type | Severity | Trigger Condition | Example Message |
+|------------|----------|-------------------|------------------|
+| `crisis_spike` | high | `crisis_level === 'high'` | 🚨 Crisis spike detected for "Topic". Volatility: 85/100. |
+| `sentiment_shift` | medium | `crisis_level === 'medium'` | ⚠️ Elevated negativity for "Topic". Monitor closely. |
+| `negative_dominant` | medium | `sentiment === 'negative' && volatility > 60` | 📉 Negative sentiment dominant with high volatility. |
+| `scheduled_monitor` | low | End of monitoring run (if errors occurred) | 🔄 Scan complete: 5 updated, 1 failed. |
+
+## Cron Schedule Setup
+
+Configure Supabase to automatically invoke this function:
+
+### Via Supabase Dashboard
+
+1. Navigate to **Database** → **Extensions**
+2. Enable `pg_cron` extension
+3. Run SQL:
+
+```sql
+SELECT cron.schedule(
+  'monitor-active-topics',      -- Job name
+  '0 */6 * * *',                -- Every 6 hours
+  $$
+  SELECT
+    net.http_post(
+      url := 'https://your-project.supabase.co/functions/v1/scheduled-monitor',
+      headers := jsonb_build_object(
+        'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key')
+      )
+    ) as request_id;
+  $$
+);
+```
+
+### Via Supabase CLI
+
+Create a cron configuration file:
+
+```yaml
+# supabase/functions/scheduled-monitor/cron.yaml
+schedule: "0 */6 * * *"  # Every 6 hours
+```
+
+### Cron Schedule Examples
+
+| Schedule | Frequency | Cron Expression |
+|----------|-----------|------------------|
+| Every hour | Hourly | `0 * * * *` |
+| Every 6 hours | 4x daily | `0 */6 * * *` |
+| Every 12 hours | 2x daily | `0 */12 * * *` |
+| Daily at 9 AM UTC | Daily | `0 9 * * *` |
+| Every Monday at midnight | Weekly | `0 0 * * 1` |
+
+<Warning>
+**API Quota Considerations**:
+
+Each monitoring run triggers the full analysis pipeline for **every active topic**, which includes:
+- Scrape.do requests (2-3 per topic)
+- YouTube API calls (~100 quota units per topic)
+- Gemini API calls (2 per topic)
+
+**Example**: 10 active topics monitored every 6 hours = 40 runs/day
+- Scrape.do: ~80-120 requests/day
+- YouTube: ~4,000 quota units/day
+- Gemini: ~80 requests/day (free tier limit: 15 RPM)
+
+**Recommendation**: Start with 12-hour intervals and adjust based on quota usage.
+</Warning>
+
+## Performance
+
+**Per-topic execution time**: ~15-45 seconds (same as `analyze-topic`)
+
+**Total execution time**:
+- 1 topic: ~20 seconds
+- 5 topics: ~90 seconds (sequential processing)
+- 10 topics: ~180 seconds (3 minutes)
+
+<Note>
+Topics are processed **sequentially** to avoid overwhelming external APIs. Consider implementing parallel processing with rate limiting for large topic lists.
+</Note>
+
+## Error Handling
+
+The function uses **soft error handling** - individual topic failures don't stop the entire run:
+
+```typescript
+for (const topic of topics) {
+  try {
+    await fetch(`${supabaseUrl}/functions/v1/analyze-topic`, {...});
+    results.push({ topic_id: topic.id, title: topic.title, status: 'success' });
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : 'Unknown error';
+    results.push({ 
+      topic_id: topic.id, 
+      title: topic.title, 
+      status: 'error', 
+      error: errMsg 
+    });
+  }
+}
+```
+
+## Database Requirements
+
+### Topics Table
+
+Required column:
+
+```sql
+ALTER TABLE topics ADD COLUMN is_active BOOLEAN DEFAULT true;
+```
+
+### Alerts Table
+
+Required schema:
+
+```sql
+CREATE TABLE alerts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  topic_id UUID REFERENCES topics(id),  -- NULL for system alerts
+  alert_type TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  message TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+## Best Practices
+
+<Check>Start with a conservative schedule (every 12-24 hours)</Check>
+
+<Check>Monitor API quota usage in external service dashboards</Check>
+
+<Check>Set up database alerts/notifications on the `alerts` table</Check>
+
+<Check>Deactivate topics (`is_active = false`) when no longer relevant</Check>
+
+<Check>Review the `results` array in logs to track failure patterns</Check>
+
+<Check>Consider implementing a topic priority system for more frequent monitoring of critical topics</Check>
+
+## Monitoring Alerts
+
+Subscribe to alerts in your application:
+
+```typescript
+// Real-time alert subscription
+const subscription = supabase
+  .channel('alerts')
+  .on(
+    'postgres_changes',
+    {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'alerts',
+      filter: 'severity=eq.high'
+    },
+    (payload) => {
+      console.log('🚨 High severity alert:', payload.new);
+      // Send push notification, email, Slack message, etc.
+    }
+  )
+  .subscribe();
+```
+
+## Related Functions
+
+- [analyze-topic](/edge-functions/analyze-topic) - Orchestrator called for each active topic
+- [analyze-sentiment](/edge-functions/analyze-sentiment) - Generates crisis_level and volatility scores
+- [fetch-twitter](/edge-functions/fetch-twitter) - Collects fresh data during re-analysis

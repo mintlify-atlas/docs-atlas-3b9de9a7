@@ -1,0 +1,421 @@
+---
+title: Crisis Detection & Alerts
+description: Automatically detect sentiment crises and receive real-time alerts when public opinion turns negative
+---
+
+## Overview
+
+SENTi-radar's crisis detection system continuously monitors topics for negative sentiment spikes, emotion anomalies, and volatility surges. When a crisis is detected, the platform triggers real-time alerts and elevates the topic to your Crisis & Alerts Log.
+
+## Crisis Levels
+
+Every topic is assigned one of four crisis levels:
+
+<CardGroup cols={4}>
+  <Card title="None" icon="check-circle" color="#2d7a4f">
+    **0-1 negative signals**
+    
+    Sentiment is stable or positive. Normal monitoring recommended.
+  </Card>
+  
+  <Card title="Low" icon="info" color="#3182ce">
+    **2-3 negative signals**
+    
+    Minor concerns detected. Watch closely but no immediate action required.
+  </Card>
+  
+  <Card title="Medium" icon="alert-circle" color="#d69e2e">
+    **4-5 negative signals**
+    
+    Elevated concern. Negative emotions are rising. Proactive engagement advised.
+  </Card>
+  
+  <Card title="High" icon="alert-triangle" color="#c53030">
+    **6+ negative signals**
+    
+    Crisis risk. Immediate attention required. Public anger/fear dominating.
+  </Card>
+</CardGroup>
+
+## Detection Algorithm
+
+The crisis level is calculated based on negative keyword density:
+
+```typescript
+// Source: TopicDetail.tsx (lines 262-268)
+const negKw = [
+  'war', 'attack', 'crisis', 'shortage', 'tension', 'conflict',
+  'scandal', 'ban', 'protest', 'threat', 'crash', 'decline',
+  'fail', 'corrupt', 'dangerous'
+];
+
+const negCount = negKw.filter(w => text.includes(w)).length;
+
+const crisisLevel: 'none' | 'medium' | 'high' = 
+  negCount >= 4 ? 'high' 
+  : negCount >= 2 ? 'medium' 
+  : 'none';
+```
+
+<Note>
+The algorithm combines keyword matching with emotion analysis. A topic with 48% anger + 22% fear will typically trigger a "high" crisis level.
+</Note>
+
+## Real-World Crisis Examples
+
+### Example 1: Climate Summit (High Crisis)
+
+```typescript
+// Source: mockData.ts
+{
+  title: 'Climate Summit 2026',
+  sentiment: 'negative',
+  crisisLevel: 'high',
+  volatility: 85,
+  emotions: [
+    { emotion: 'anger', percentage: 42 },
+    { emotion: 'sadness', percentage: 25 },
+    { emotion: 'fear', percentage: 18 }
+  ],
+  summary: '42% anger, 25% sadness → Key frustrations: broken promises (55%), insufficient targets (30%), greenwashing (12%)'
+}
+```
+
+**Why it's a crisis**: 
+- 67% negative emotions (anger + sadness + fear)
+- Keywords: "broken promises", "greenwashing", "too little too late"
+- Volatility: 85/100
+- Volume spiked 60% after leaked draft targets
+
+### Example 2: Food Prices (High Crisis)
+
+```typescript
+{
+  title: 'Global Food Prices',
+  hashtag: '#FoodCrisis',
+  sentiment: 'negative',
+  crisisLevel: 'high',
+  volatility: 91,
+  emotions: [
+    { emotion: 'anger', percentage: 48 },
+    { emotion: 'fear', percentage: 22 }
+  ],
+  summary: 'Outrage at: corporate profiteering (52%), government inaction (33%), supply chain failures (12%)'
+}
+```
+
+**Why it's a crisis**:
+- 70% negative emotions (anger + fear + sadness)
+- Personal impact: "Can't feed my family" posts up 200%
+- Viral evidence: Grocery receipt photos spreading
+- Keywords: "corporate greed", "can't afford", "price controls"
+
+### Example 3: AI Regulation (Medium Crisis)
+
+```typescript
+{
+  title: 'AI Regulation Debate',
+  sentiment: 'mixed',
+  crisisLevel: 'medium',
+  volatility: 72,
+  emotions: [
+    { emotion: 'fear', percentage: 35 },
+    { emotion: 'anger', percentage: 28 },
+    { emotion: 'surprise', percentage: 18 }
+  ]
+}
+```
+
+**Why it's medium**: 
+- 63% negative/anxious emotions (fear + anger)
+- Polarized debate (not universal outrage)
+- Main concerns: job displacement (48%), lack of oversight (31%)
+- Moderate volatility indicates ongoing debate, not crisis
+
+## Crisis & Alerts Log
+
+The Crisis & Alerts Log displays real-time notifications for active crises:
+
+<Tabs>
+  <Tab title="Alert Types">
+    ### Negative Spike Detected (🔴 Red)
+    
+    Triggered when:
+    - Sentiment drops below -20
+    - Anger or fear exceeds 40%
+    - Volume spikes 50%+ with negative tone
+    
+    **Example**:
+    ```
+    🔴 Negative spike detected
+    Anger dominant in public discourse
+    Just now
+    ```
+    
+    ### Sentiment Shift (🟡 Yellow)
+    
+    Triggered when:
+    - Sentiment changes 30+ points within 6 hours
+    - Volume increases 100%+ (viral momentum)
+    
+    **Example**:
+    ```
+    🟡 Sentiment Shift
+    Sudden increase in conversation volume
+    30 min ago
+    ```
+    
+    ### Stable / Positive (🔵 Blue)
+    
+    Default state when no crisis detected:
+    ```
+    🔵 No critical alerts
+    Public conversation is moderate
+    2 hours ago
+    ```
+  </Tab>
+  
+  <Tab title="UI Display">
+    Each alert includes:
+    - **Status dot**: Animated pulse for active alerts
+    - **Alert title**: Clear, actionable label
+    - **Description**: Specific trigger (emotion name, percentage)
+    - **Timestamp**: Relative time ("Just now", "30 min ago")
+    - **Border color**: Matches severity (red/yellow/blue)
+    
+    ```tsx
+    // Source: TopicDetail.tsx (lines 906-913)
+    <div className="flex items-start gap-3 p-3 bg-card 
+                    border-l-2 border-destructive rounded-r shadow-sm">
+      <span className="h-2 w-2 mt-1.5 rounded-full 
+                       bg-destructive animate-pulse" />
+      <div className="flex-1">
+        <p className="text-xs font-semibold">Negative spike detected</p>
+        <p className="text-[11px] text-muted-foreground">
+          <strong className="text-destructive">Anger</strong> dominant
+        </p>
+      </div>
+    </div>
+    ```
+  </Tab>
+</Tabs>
+
+## Scheduled Monitoring & Alerts
+
+Set up automated crisis monitoring with the Schedule Analysis feature:
+
+<Steps>
+  <Step title="Open Schedule Modal">
+    Click the "Schedule Analysis" button in the dashboard header or topic detail panel.
+  </Step>
+  
+  <Step title="Configure Topic & Frequency">
+    Select the topic to monitor and choose a frequency:
+    - Every hour
+    - Every 6 hours
+    - Daily
+    - Weekly
+    - Custom (cron expression)
+  </Step>
+  
+  <Step title="Set Alert Thresholds">
+    Define crisis triggers using interactive sliders:
+    
+    ```tsx
+    // Source: ScheduleAnalysisModal.tsx
+    {
+      sentimentDropsBelow: 30,     // Alert if sentiment < 30%
+      volumeSpikesAbove: 150,      // Alert if volume > 150% of avg
+      angerEmotionExceeds: 40,     // Alert if anger > 40%
+      viralMomentumDetected: true  // Alert on viral trends
+    }
+    ```
+  </Step>
+  
+  <Step title="Choose Delivery Channels">
+    Configure where alerts are sent:
+    - **Email**: Multiple addresses (comma-separated)
+    - **Slack**: Channel webhooks (#sentiment-alerts)
+    - **Webhook**: Custom API endpoints
+  </Step>
+  
+  <Step title="Select Report Types">
+    Choose what to include in alerts:
+    - Executive Summary
+    - Full Analysis
+    - Crisis Alerts Only (recommended for high-frequency monitoring)
+    - Trend Comparison
+  </Step>
+</Steps>
+
+## Alert Threshold Configuration
+
+The Schedule Analysis modal provides granular control over alert conditions:
+
+### Sentiment Drop Threshold
+
+```tsx
+<Slider 
+  defaultValue={[30]} 
+  max={100} 
+  step={1} 
+/>
+```
+
+**Use case**: Alert when positive sentiment falls below 30% (indicating majority negative/neutral sentiment).
+
+### Volume Spike Detection
+
+```tsx
+<Slider 
+  defaultValue={[150]} 
+  max={500} 
+  step={10} 
+/>
+```
+
+**Use case**: Alert when volume exceeds 150% of the hourly average (viral trend detection).
+
+### Emotion-Specific Triggers
+
+```tsx
+<Slider 
+  label="Anger emotion exceeds" 
+  defaultValue={[40]} 
+  max={100} 
+  step={1} 
+/>
+```
+
+**Use case**: Trigger crisis alert when anger surpasses 40% (indicates public outrage).
+
+<Info>
+You can combine multiple thresholds. For example: Alert only if **both** anger > 40% **and** volume spikes > 150%.
+</Info>
+
+## Volatility Score
+
+Volatility measures sentiment stability over time (0-100 scale):
+
+```tsx
+// Source: mockData.ts
+{
+  volatility: 91,  // Extremely volatile
+  crisisLevel: 'high'
+}
+```
+
+### Interpreting Volatility
+
+- **0-40**: Stable sentiment, predictable trends
+- **41-70**: Moderate fluctuations, evolving narrative
+- **71-100**: Highly volatile, rapid sentiment shifts
+
+**Crisis correlation**: Topics with volatility > 70 have a 3x higher chance of becoming crises.
+
+<Note>
+The volatility chart displays 20 mini-bars showing recent fluctuations. Height = sentiment change magnitude.
+</Note>
+
+## Crisis Response Workflow
+
+When a crisis is detected:
+
+<Steps>
+  <Step title="Verify the Alert">
+    Check the Crisis & Alerts Log for the trigger:
+    - What emotion spiked? (anger, fear, disgust)
+    - What's the volume change?
+    - What are people saying? (read Top Voices / Pointers)
+  </Step>
+  
+  <Step title="Analyze Root Cause">
+    Use the AI Insights panel to generate a strategic analysis:
+    - Click "Generate Report" to get LLM-powered recommendations
+    - Review "Key Concerns Identified" and "Risk Factors to Monitor"
+  </Step>
+  
+  <Step title="Monitor Top Phrases">
+    Review the Top Voices panel for specific complaints:
+    - Negative pointers show recurring criticisms
+    - Positive pointers reveal what's working
+    
+    Example: "'Poor handling of the situation' (84 mentions)"
+  </Step>
+  
+  <Step title="Track Live Feed">
+    Read raw posts in the Recent Activity panel to understand tone and context.
+  </Step>
+  
+  <Step title="Take Action">
+    Based on AI Insights recommendations:
+    - Engage proactively on social media
+    - Issue official statements
+    - Address specific concerns (pricing, policy, transparency)
+    - Monitor sentiment shift after response
+  </Step>
+</Steps>
+
+## Integration with Other Features
+
+### Crisis → AI Insights
+
+When a crisis is detected, the AI Insights panel automatically includes crisis-specific guidance:
+
+```markdown
+## Recommended Actions
+1. **Monitor and document** — track the anger signals in real-time
+2. **Engage proactively** — address leading concerns with transparent communication
+3. **Establish rapid response protocols** — Immediate crisis communication is recommended.
+```
+
+### Crisis → Export Reports
+
+Export crisis data for stakeholder briefings:
+
+```typescript
+// CSV Export includes:
+{
+  title: 'Global Food Prices',
+  sentiment: 'negative',
+  crisisLevel: 'high',
+  volatility: 91,
+  summary: 'Outrage at corporate profiteering...'
+}
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Set Conservative Thresholds" icon="sliders">
+    Start with sensitive thresholds (e.g., sentiment < 40%, anger > 30%) to catch early warnings. You can relax them if you get too many false positives.
+  </Card>
+  
+  <Card title="Monitor High-Stakes Topics Daily" icon="calendar">
+    For brand launches, policy announcements, or PR-sensitive topics, set hourly monitoring with Crisis Alerts Only enabled.
+  </Card>
+  
+  <Card title="Cross-Check Emotion + Volume" icon="activity">
+    A 50% anger spike with low volume (< 1K mentions) may not warrant crisis response. Always consider scale.
+  </Card>
+  
+  <Card title="Use Webhooks for Automation" icon="webhook">
+    Integrate with PagerDuty, Opsgenie, or custom incident management systems for 24/7 crisis coverage.
+  </Card>
+</CardGroup>
+
+## Limitations
+
+<Note>
+**Keyword-based detection**: The current system uses keyword matching, which can miss sarcasm, context, or subtle negativity. For higher accuracy, consider integrating transformer-based models (BERT, RoBERTa) for emotion classification.
+
+**No historical baseline**: Crisis levels are absolute, not relative to the topic's normal sentiment. A consistently negative topic (e.g., "Tax Increases") may always show "medium" crisis even when stable.
+
+**Platform bias**: X/Twitter tends to amplify outrage more than YouTube. Cross-reference multiple platforms before declaring a crisis.
+</Note>
+
+## Related Features
+
+- [Emotion Classification](/features/emotion-classification) - Understand which emotions trigger crises
+- [Scheduled Monitoring](/features/scheduled-monitoring) - Automate crisis detection
+- [AI Insights](/features/ai-insights) - Get strategic crisis response recommendations

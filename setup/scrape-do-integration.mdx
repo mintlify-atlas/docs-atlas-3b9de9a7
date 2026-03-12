@@ -1,0 +1,539 @@
+---
+title: Scrape.do Integration
+description: Set up live X (Twitter) and Reddit scraping with Scrape.do for real-time sentiment analysis
+---
+
+SENTi-radar uses [Scrape.do](https://scrape.do/) as its primary data provider for scraping JavaScript-heavy social media platforms like X (Twitter) and Reddit. This guide covers setup, configuration, and advanced usage.
+
+## Why Scrape.do?
+
+Scrape.do provides:
+
+- **JavaScript rendering** with Puppeteer/Playwright for SPA-heavy sites like X.com
+- **Residential proxies** to bypass datacenter IP blocks
+- **Geo-targeting** for location-specific results
+- **Reliable infrastructure** with automatic retries and scaling
+- **Pay-as-you-go pricing** with free tier available
+
+## Getting Started
+
+<Steps>
+  <Step title="Create a Scrape.do account">
+    1. Go to [scrape.do](https://scrape.do/)
+    2. Click **Sign Up** or **Start Free Trial**
+    3. Complete registration with email verification
+  </Step>
+
+  <Step title="Get your API token">
+    1. Log in to the [Scrape.do dashboard](https://scrape.do/dashboard)
+    2. Navigate to **API Tokens**
+    3. Copy your default token or create a new one
+    4. Note your credit balance and rate limits
+  </Step>
+
+  <Step title="Add token to environment">
+    Add your token to both client and server environments:
+
+    **Client (.env):**
+    ```bash
+    VITE_SCRAPE_TOKEN=your-scrape-do-token-here
+    ```
+
+    **Server (Supabase secrets):**
+    ```bash
+    supabase secrets set SCRAPE_DO_TOKEN=your-scrape-do-token-here
+    ```
+  </Step>
+
+  <Step title="Verify integration">
+    Start your development server and test scraping:
+
+    ```bash
+    npm run dev
+    ```
+
+    Create a new topic in the UI and watch the browser console for Scrape.do requests.
+  </Step>
+</Steps>
+
+## Architecture
+
+SENTi-radar uses Scrape.do in two layers:
+
+### 1. Client-Side Scraping
+
+**File:** `src/services/scrapeDoProvider.ts`
+
+```typescript
+import { fetchXPosts, fetchRedditPosts } from '@/services/scrapeDoProvider';
+
+// Fetch X posts
+const xResult = await fetchXPosts('climate change', token, {
+  render: true,
+  super: true,          // residential proxies
+  waitUntil: 'networkidle0',
+  geoCode: 'us',        // US-based results
+});
+
+// Fetch Reddit posts
+const redditResult = await fetchRedditPosts('climate change', token, {
+  render: false,        // Reddit JSON API doesn't need rendering
+  super: true,
+});
+```
+
+### 2. Server-Side Scraping
+
+**File:** `supabase/functions/fetch-twitter/index.ts`
+
+The edge function fetches data in priority order:
+
+1. **Scrape.do** (X + Reddit in parallel)
+2. **Parallel.ai** (fallback social search)
+3. **YouTube Data API** (video comments)
+4. **Algorithmic generation** (guaranteed fallback)
+
+## Configuration Options
+
+Scrape.do accepts these parameters via the `ScrapeDoOptions` interface:
+
+<ParamField path="render" type="boolean" default="true">
+  Enable JavaScript rendering using headless browser.
+  
+  - **X (Twitter):** Required (`true`) — X is a React SPA
+  - **Reddit JSON API:** Not needed (`false`) — direct JSON endpoint
+  
+  <Note>
+    Rendering consumes more credits. Disable for simple HTML pages.
+  </Note>
+</ParamField>
+
+<ParamField path="super" type="boolean" default="false">
+  Use residential/mobile proxies instead of datacenter IPs.
+  
+  - **When to enable:**
+    - X.com blocks your requests (HTTP 403/407)
+    - Empty results despite valid query
+    - Rate limiting or CAPTCHA challenges
+  
+  - **Trade-off:** Higher cost per request
+  
+  ```typescript
+  // Enable residential proxies for X
+  const result = await fetchXPosts(query, token, { super: true });
+  ```
+</ParamField>
+
+<ParamField path="waitUntil" type="string" default="networkidle0">
+  Wait strategy before capturing HTML.
+  
+  - `networkidle0`: Wait until no network connections for 500ms (recommended for X)
+  - `networkidle2`: Wait until ≤2 connections for 500ms
+  - `load`: Wait for `load` event
+  - `domcontentloaded`: Wait for DOM ready (fastest)
+  
+  ```typescript
+  // Wait for full network idle (most reliable for X)
+  { waitUntil: 'networkidle0' }
+  ```
+</ParamField>
+
+<ParamField path="geoCode" type="string" default="none">
+  ISO country code for geo-targeted results.
+  
+  **Examples:**
+  - `us` — United States
+  - `gb` — United Kingdom
+  - `in` — India
+  - `br` — Brazil
+  
+  ```typescript
+  // Get US-specific X results
+  const result = await fetchXPosts(query, token, { geoCode: 'us' });
+  ```
+</ParamField>
+
+## Platform-Specific Strategies
+
+### X (Twitter)
+
+**Target URL:**
+```
+https://x.com/search?q={query}&src=typed_query&f=live
+```
+
+**Recommended settings:**
+```typescript
+{
+  render: true,
+  waitUntil: 'networkidle0',
+  super: true,  // Enable if blocked
+  geoCode: 'us'
+}
+```
+
+**Parsing strategy:**
+
+1. **Primary:** Extract `<article data-testid="tweet">` elements
+2. **Extract text:** Find `<div data-testid="tweetText">` within each article
+3. **Extract author:** Find `<span>` with `@username` in `data-testid="User-Name"`
+4. **Fallback:** Search for `<span lang="en">` tags if articles not found
+
+**Code reference:** `src/services/scrapeDoProvider.ts:93-144`
+
+### Reddit
+
+**Target URL:**
+```
+https://www.reddit.com/search.json?q={query}&sort=new&limit=25
+```
+
+**Recommended settings:**
+```typescript
+{
+  render: false,  // JSON endpoint doesn't need rendering
+  super: true     // Enable if blocked
+}
+```
+
+**Parsing strategy:**
+
+1. Parse JSON response directly
+2. Extract `data.children[].data` for post objects
+3. Combine `title` + `selftext` for content
+4. Use `created_utc` for timestamp
+
+**Code reference:** `src/services/scrapeDoProvider.ts:152-183`
+
+## Usage Examples
+
+### Basic Fetch
+
+```typescript
+import { fetchXPosts, fetchRedditPosts } from '@/services/scrapeDoProvider';
+
+// Simple X fetch
+const xResult = await fetchXPosts('AI safety', import.meta.env.VITE_SCRAPE_TOKEN);
+console.log(`Found ${xResult.posts.length} X posts`);
+console.log(`Status: ${xResult.status}`);
+
+// Simple Reddit fetch
+const redditResult = await fetchRedditPosts('AI safety', import.meta.env.VITE_SCRAPE_TOKEN);
+console.log(`Found ${redditResult.posts.length} Reddit posts`);
+```
+
+### Fetch All Sources in Parallel
+
+```typescript
+import { fetchAllScrapeDoSources } from '@/services/scrapeDoProvider';
+
+const { results, posts } = await fetchAllScrapeDoSources(
+  'climate change',
+  import.meta.env.VITE_SCRAPE_TOKEN,
+  ['x', 'reddit'],  // sources to fetch
+  { super: true, geoCode: 'us' }  // applied to all sources
+);
+
+console.log(`Total posts: ${posts.length}`);
+results.forEach(r => {
+  console.log(`${r.source}: ${r.status} (${r.posts.length} posts)`);
+});
+```
+
+### Advanced: Residential Proxies + Geo-Targeting
+
+```typescript
+// Fetch US-based X posts with residential proxies
+const result = await fetchXPosts(
+  'US election 2024',
+  token,
+  {
+    render: true,
+    super: true,           // residential proxies
+    waitUntil: 'networkidle0',
+    geoCode: 'us'          // US geo-targeting
+  }
+);
+
+if (result.status === 'success') {
+  console.log(`Successfully fetched ${result.posts.length} US-based posts`);
+} else {
+  console.error(`Error: ${result.error}`);
+}
+```
+
+### Error Handling
+
+```typescript
+const result = await fetchXPosts(query, token, { super: true });
+
+switch (result.status) {
+  case 'success':
+    console.log(`✓ ${result.posts.length} posts fetched`);
+    break;
+  
+  case 'partial':
+    console.warn(`⚠ Partial results: ${result.error}`);
+    // Still process result.posts (may have some data)
+    break;
+  
+  case 'error':
+    console.error(`✗ Failed: ${result.error}`);
+    // Implement fallback logic
+    break;
+}
+```
+
+## Edge Function Implementation
+
+The `fetch-twitter` edge function uses Scrape.do on the server side:
+
+```typescript
+// supabase/functions/fetch-twitter/index.ts (simplified)
+
+const SCRAPE_DO_TOKEN = Deno.env.get("SCRAPE_DO_TOKEN") || "";
+
+if (SCRAPE_DO_TOKEN) {
+  const xUrl = `https://x.com/search?q=${encodeURIComponent(query)}&f=live`;
+  const redditUrl = `https://www.reddit.com/search.json?q=${encodeURIComponent(query)}&sort=new&limit=25`;
+
+  // Fetch X and Reddit in parallel
+  const [xResult, redditResult] = await Promise.allSettled([
+    fetch(buildScrapeDoUrl(SCRAPE_DO_TOKEN, xUrl, { 
+      render: true, 
+      waitUntil: "networkidle0" 
+    })),
+    fetch(buildScrapeDoUrl(SCRAPE_DO_TOKEN, redditUrl, { 
+      render: false 
+    }))
+  ]);
+
+  // Parse results...
+}
+```
+
+**Code reference:** `supabase/functions/fetch-twitter/index.ts:308-344`
+
+## Cost Optimization
+
+### Credit Usage
+
+- **Standard request:** 1-5 credits
+- **With rendering:** 5-10 credits
+- **With super (residential):** 25-50 credits
+
+<Note>
+  Check your [Scrape.do dashboard](https://scrape.do/dashboard) for real-time credit usage and pricing.
+</Note>
+
+### Best Practices
+
+1. **Disable rendering when possible**
+   - Reddit JSON API: `{ render: false }`
+   - Simple HTML pages: `{ render: false }`
+
+2. **Use `super` only when needed**
+   - Start with `super: false`
+   - Enable only if you get blocks (403/407)
+
+3. **Cache results**
+   - Store posts in Supabase database
+   - Implement client-side caching
+   - Avoid duplicate requests for same query
+
+4. **Batch requests**
+   - Use `Promise.allSettled()` for parallel fetching
+   - Fetch X + Reddit simultaneously
+
+5. **Set reasonable limits**
+   - X search: 15-25 posts
+   - Reddit search: 25 posts (API limit)
+
+## Troubleshooting
+
+### Empty Results from X
+
+**Problem:** `fetchXPosts()` returns 0 posts
+
+**Solutions:**
+
+1. **Enable residential proxies:**
+   ```typescript
+   { super: true }
+   ```
+
+2. **Increase wait time:**
+   ```typescript
+   { waitUntil: 'networkidle0' }  // Most reliable
+   ```
+
+3. **Check for login wall:**
+   - X sometimes shows "Log in to X" page
+   - Residential proxies (`super: true`) usually bypass this
+
+4. **Verify HTML structure:**
+   - X changes their HTML frequently
+   - Check `parseXHtml()` regex patterns
+   - View raw HTML response in browser network tab
+
+### Reddit Returns HTML Instead of JSON
+
+**Problem:** Reddit returns HTML login page instead of JSON
+
+**Solutions:**
+
+1. **Enable residential proxies:**
+   ```typescript
+   { render: false, super: true }
+   ```
+
+2. **Verify URL:**
+   - Ensure `.json` extension: `reddit.com/search.json`
+   - Check query encoding
+
+### HTTP 402 (Payment Required)
+
+**Problem:** Scrape.do returns 402 status
+
+**Solutions:**
+
+1. Check credit balance in dashboard
+2. Add credits to your account
+3. Review monthly quota limits
+
+### HTTP 429 (Rate Limited)
+
+**Problem:** Too many requests
+
+**Solutions:**
+
+1. Implement request throttling
+2. Add delays between requests
+3. Upgrade to higher rate limit plan
+4. Use exponential backoff retry logic
+
+### HTTP 403/407 (Blocked)
+
+**Problem:** Target site blocking requests
+
+**Solutions:**
+
+1. **Enable residential proxies:**
+   ```typescript
+   { super: true }
+   ```
+
+2. **Add geo-targeting:**
+   ```typescript
+   { super: true, geoCode: 'us' }
+   ```
+
+3. **Contact Scrape.do support** if issue persists
+
+## Extending to New Platforms
+
+To add support for new social platforms (e.g., Hacker News, LinkedIn):
+
+<Steps>
+  <Step title="Create parser function">
+    Add a parser in `src/services/scrapeDoProvider.ts`:
+
+    ```typescript
+    export function parseHackerNewsHtml(html: string, query: string): ScrapedPost[] {
+      const posts: ScrapedPost[] = [];
+      // Parse HTML to extract posts
+      return posts;
+    }
+    ```
+  </Step>
+
+  <Step title="Create fetch function">
+    ```typescript
+    export async function fetchHackerNewsPosts(
+      query: string,
+      token: string,
+      options: ScrapeDoOptions = {}
+    ): Promise<ScrapeDoResult> {
+      const targetUrl = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}`;
+      const apiUrl = buildApiUrl(token, targetUrl, { render: false, ...options });
+      
+      const res = await fetch(apiUrl);
+      const data = await res.json();
+      const posts = parseHackerNewsJson(data, query);
+      
+      return {
+        posts,
+        source: 'Hacker News via Scrape.do',
+        status: posts.length > 0 ? 'success' : 'partial'
+      };
+    }
+    ```
+  </Step>
+
+  <Step title="Add to aggregator">
+    Update `fetchAllScrapeDoSources()` to include the new source:
+
+    ```typescript
+    export async function fetchAllScrapeDoSources(
+      query: string,
+      token: string,
+      sources: Array<'x' | 'reddit' | 'hackernews'> = ['x', 'reddit'],
+      options: ScrapeDoOptions = {}
+    ) {
+      // Add new source to fetchers array
+    }
+    ```
+  </Step>
+
+  <Step title="Update UI">
+    Add source chip in `TopicDetail.tsx` to display Hacker News status.
+  </Step>
+</Steps>
+
+## API Reference
+
+### `buildApiUrl(token, targetUrl, options)`
+
+Builds the Scrape.do proxy URL.
+
+**Parameters:**
+- `token` (string): Scrape.do API token
+- `targetUrl` (string): URL to scrape
+- `options` (ScrapeDoOptions): Configuration options
+
+**Returns:** `string` - Full Scrape.do API URL
+
+### `fetchXPosts(query, token, options)`
+
+Fetch X (Twitter) posts.
+
+**Returns:** `Promise<ScrapeDoResult>`
+
+### `fetchRedditPosts(query, token, options)`
+
+Fetch Reddit posts.
+
+**Returns:** `Promise<ScrapeDoResult>`
+
+### `fetchAllScrapeDoSources(query, token, sources, options)`
+
+Fetch from multiple sources in parallel.
+
+**Returns:** `Promise<{ results: ScrapeDoResult[], posts: ScrapedPost[] }>`
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" icon="code" href="./environment-variables">
+    Configure all API tokens
+  </Card>
+  <Card title="API Keys" icon="key" href="./api-keys">
+    Get additional API keys for fallback sources
+  </Card>
+  <Card title="Scrape.do Docs" icon="book" href="https://docs.scrape.do">
+    Official Scrape.do documentation
+  </Card>
+  <Card title="Scrape.do Dashboard" icon="chart-simple" href="https://scrape.do/dashboard">
+    Monitor usage and credits
+  </Card>
+</CardGroup>

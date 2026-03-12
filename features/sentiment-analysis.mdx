@@ -1,0 +1,213 @@
+---
+title: Real-Time Sentiment Analysis
+description: Monitor and analyze public sentiment across social media platforms using AI-powered sentiment detection
+---
+
+## Overview
+
+SENTi-radar's sentiment analysis engine continuously monitors trending topics across X (Twitter) and YouTube, providing real-time insights into public opinion. The platform analyzes thousands of posts, comments, and discussions to deliver actionable sentiment intelligence.
+
+## How It Works
+
+<Steps>
+  <Step title="Topic Selection">
+    Select a trending topic from the dashboard or create a custom topic to monitor. Each topic includes a hashtag identifier for social media tracking.
+  </Step>
+  
+  <Step title="Data Collection">
+    The system fetches real-time data from multiple sources:
+    - **YouTube**: Video titles, descriptions, and top comments via YouTube Data API v3
+    - **Google News**: Headlines via RSS feeds
+    - **X & Reddit**: Posts and discussions via Scrape.do integration
+    - Analyzes 25-100+ texts per topic
+  </Step>
+  
+  <Step title="Sentiment Calculation">
+    AI models process the collected text to determine:
+    - Overall sentiment (Positive, Negative, or Mixed)
+    - Sentiment score (-100 to +100)
+    - Volume trends and percentage changes
+    - Volatility metrics
+  </Step>
+  
+  <Step title="Live Visualization">
+    Results appear instantly in the Topic Detail panel with interactive charts and real-time updates.
+  </Step>
+</Steps>
+
+## Sentiment Gauge
+
+The sentiment gauge provides an at-a-glance view of overall public opinion:
+
+```tsx
+// Source: SentimentGauge.tsx
+const score = Math.round(((positive - negative) / total) * 100);
+
+const label = score > 20 ? 'Positive' 
+            : score < -20 ? 'Negative' 
+            : 'Neutral';
+```
+
+<Info>
+The gauge needle moves dynamically from -100 (extremely negative) to +100 (extremely positive), with neutral sentiment centered at 0.
+</Info>
+
+### Interpreting Scores
+
+- **+20 to +100**: Positive sentiment dominates
+- **-20 to +20**: Mixed or neutral sentiment
+- **-100 to -20**: Negative sentiment dominates
+
+## Data Sources
+
+<CardGroup cols={2}>
+  <Card title="YouTube Integration" icon="video">
+    Fetches video search results and top comments using the YouTube Data API v3. Analyzes both video metadata and user-generated comments.
+  </Card>
+  
+  <Card title="Google News RSS" icon="newspaper">
+    Monitors news headlines from Google News RSS feeds to capture media narratives and breaking developments.
+  </Card>
+  
+  <Card title="X (Twitter) via Scrape.do" icon="bird">
+    Collects real-time posts and discussions from X using the Scrape.do proxy service (requires VITE_SCRAPE_TOKEN configuration).
+  </Card>
+  
+  <Card title="Reddit via Scrape.do" icon="message-square">
+    Aggregates community discussions and reactions from relevant subreddits.
+  </Card>
+</CardGroup>
+
+## Sentiment Timeline Chart
+
+Track sentiment evolution over time with interactive timeline charts:
+
+```tsx
+// Source: SentimentChart.tsx
+const ranges = [
+  { label: '6H', hours: 6 },
+  { label: '12H', hours: 12 },
+  { label: '24H', hours: 24 },
+  { label: '3D', hours: 72 },
+  { label: '7D', hours: 168 },
+];
+```
+
+<Tabs>
+  <Tab title="Features">
+    - **Multi-line visualization**: Positive, negative, and neutral trends
+    - **Time range selector**: 6H, 12H, 24H, 3D, 7D
+    - **Interactive tooltips**: Hover to see exact values and volume
+    - **Responsive design**: Adapts to panel width
+  </Tab>
+  
+  <Tab title="Data Points">
+    Each timeline point includes:
+    - Timestamp
+    - Positive percentage
+    - Negative percentage
+    - Neutral percentage
+    - Total volume (number of mentions)
+  </Tab>
+</Tabs>
+
+## Key Metrics
+
+### Volume Tracking
+
+Monitor conversation volume and detect viral trends:
+
+```tsx
+// Source: mockData.ts
+export function formatVolume(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+  return n.toString();
+}
+```
+
+**Example**: A topic with 284,500 mentions displays as **284.5K**
+
+### Volatility Score
+
+Measures how rapidly sentiment is changing (0-100 scale):
+
+- **0-40**: Stable, predictable sentiment
+- **41-70**: Moderate fluctuations
+- **71-100**: Highly volatile, rapid sentiment shifts
+
+<Note>
+High volatility often indicates breaking news, controversies, or viral moments that require immediate attention.
+</Note>
+
+## Live Summary Generation
+
+When you open a topic, the AI Summary panel automatically:
+
+1. **Fetches live data** from all configured sources (X, Reddit, YouTube, News)
+2. **Analyzes emotions** using keyword-based scoring across 6 emotions
+3. **Generates insights** using tiered LLM fallback:
+   - **Tier 1**: Gemini 2.0 Flash (if `VITE_GEMINI_API_KEY` configured)
+   - **Tier 2**: Groq Llama 3.3 70B (if `VITE_GROQ_API_KEY` configured)
+   - **Tier 3**: Local analysis (always available, no API required)
+
+```tsx
+// Source: TopicDetail.tsx
+const analysis = analyzeTopicFully(
+  topic.title,
+  headlines,      // Google News RSS
+  comments,       // YouTube comments
+  scrapedPosts,   // X & Reddit via Scrape.do
+  scrapeDoResults // Per-source status
+);
+```
+
+<Info>
+The system displays a real-time status badge showing which data sources are active: "Live from X · Reddit · YouTube · News"
+</Info>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Monitor High-Volatility Topics" icon="trending-up">
+    Set up scheduled monitoring for topics with volatility scores above 70 to catch rapid sentiment shifts.
+  </Card>
+  
+  <Card title="Cross-Reference Sources" icon="link">
+    Compare sentiment across different platforms (X vs YouTube vs Reddit) to identify platform-specific narratives.
+  </Card>
+  
+  <Card title="Track Volume Spikes" icon="activity">
+    A sudden +50% volume increase often signals breaking news or viral moments—investigate immediately.
+  </Card>
+  
+  <Card title="Use Timeline Context" icon="clock">
+    Always check the 24H or 7D timeline to understand if current sentiment is an anomaly or a trend.
+  </Card>
+</CardGroup>
+
+## Configuration
+
+To enable all data sources, configure these environment variables in your `.env` file:
+
+```bash
+# Required for YouTube comments
+VITE_YOUTUBE_API_KEY=your_youtube_api_key
+
+# Required for X & Reddit scraping
+VITE_SCRAPE_TOKEN=your_scrape_do_token
+
+# Optional: AI summary generation
+VITE_GEMINI_API_KEY=your_gemini_api_key
+VITE_GROQ_API_KEY=your_groq_api_key
+```
+
+<Note>
+Without these keys, the platform falls back to keyword-based analysis and local summary generation—still fully functional but with reduced data sources.
+</Note>
+
+## Related Features
+
+- [Emotion Classification](/features/emotion-classification) - Understand the emotional drivers behind sentiment
+- [Crisis Detection](/features/crisis-detection) - Automatically detect and alert on negative sentiment spikes
+- [AI Insights](/features/ai-insights) - Generate strategic recommendations from sentiment data

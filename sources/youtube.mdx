@@ -1,0 +1,509 @@
+---
+title: 'YouTube Data Source'
+description: 'Video comment collection via YouTube Data API v3'
+---
+
+## Overview
+
+The YouTube integration uses the official YouTube Data API v3 to search for relevant videos and collect their comment threads. Unlike X and Reddit which require web scraping, YouTube provides a stable, well-documented API.
+
+<Info>
+YouTube data collection is implemented in `supabase/functions/fetch-youtube/index.ts` and serves as a fallback when X/Reddit scraping fails.
+</Info>
+
+## How It Works
+
+The YouTube fetcher follows a two-step process:
+
+### Step 1: Search for Videos
+
+```typescript
+const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search");
+searchUrl.searchParams.set("part", "snippet");
+searchUrl.searchParams.set("q", topic.query);
+searchUrl.searchParams.set("type", "video");
+searchUrl.searchParams.set("maxResults", "5");
+searchUrl.searchParams.set("order", "date");
+searchUrl.searchParams.set("key", YOUTUBE_API_KEY);
+
+const searchResponse = await fetch(searchUrl.toString());
+const searchData = await searchResponse.json();
+
+const videoIds = (searchData.items || [])
+  .map((item: any) => item.id?.videoId)
+  .filter(Boolean);
+```
+
+<Note>
+**Order: date** ensures the most recent videos appear first, providing real-time sentiment data.
+</Note>
+
+### Step 2: Fetch Comments for Each Video
+
+```typescript
+let totalInserted = 0;
+let totalFetched = 0;
+
+for (const videoId of videoIds) {
+  const commentsUrl = new URL(
+    "https://www.googleapis.com/youtube/v3/commentThreads"
+  );
+  commentsUrl.searchParams.set("part", "snippet");
+  commentsUrl.searchParams.set("videoId", videoId);
+  commentsUrl.searchParams.set("maxResults", "20");
+  commentsUrl.searchParams.set("order", "relevance");
+  commentsUrl.searchParams.set("key", YOUTUBE_API_KEY);
+
+  const commentsResponse = await fetch(commentsUrl.toString());
+  if (!commentsResponse.ok) {
+    console.error(`Comments fetch failed for video ${videoId}`);
+    await commentsResponse.text(); // consume body
+    continue;
+  }
+
+  const commentsData = await commentsResponse.json();
+  const comments = commentsData.items || [];
+  totalFetched += comments.length;
+
+  for (const comment of comments) {
+    const snippet = comment.snippet?.topLevelComment?.snippet;
+    if (!snippet) continue;
+
+    const { error } = await supabase.from("posts").upsert(
+      {
+        topic_id,
+        platform: "youtube",
+        external_id: comment.id,
+        author: snippet.authorDisplayName || "Anonymous",
+        content: snippet.textDisplay?.replace(/<[^>]*>/g, "") || "",
+        posted_at: snippet.publishedAt,
+      },
+      { onConflict: "platform,external_id" }
+    );
+    if (!error) totalInserted++;
+  }
+}
+```
+
+## API Endpoints
+
+### Search Endpoint
+
+**URL:** `https://www.googleapis.com/youtube/v3/search`
+
+**Parameters:**
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `part` | `snippet` | Returns title, description, thumbnails |
+| `q` | `{topic.query}` | Search query |
+| `type` | `video` | Only return videos (not channels/playlists) |
+| `maxResults` | `5` | Number of videos to retrieve |
+| `order` | `date` | Sort by upload date (newest first) |
+| `key` | `{API_KEY}` | YouTube Data API key |
+
+<CodeGroup>
+```bash Example Request
+curl "https://www.googleapis.com/youtube/v3/search?part=snippet&q=OpenAI&type=video&maxResults=5&order=date&key=YOUR_API_KEY"
+```
+
+```json Example Response
+{
+  "items": [
+    {
+      "id": {
+        "videoId": "dQw4w9WgXcQ"
+      },
+      "snippet": {
+        "title": "OpenAI's Latest Breakthrough",
+        "description": "Discussion about OpenAI's new model...",
+        "channelTitle": "Tech Channel",
+        "publishedAt": "2024-03-12T10:00:00Z"
+      }
+    }
+  ]
+}
+```
+</CodeGroup>
+
+### Comments Endpoint
+
+**URL:** `https://www.googleapis.com/youtube/v3/commentThreads`
+
+**Parameters:**
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `part` | `snippet` | Returns comment metadata |
+| `videoId` | `{videoId}` | Video to fetch comments from |
+| `maxResults` | `20` | Comments per video |
+| `order` | `relevance` | Sort by relevance (top comments) |
+| `key` | `{API_KEY}` | YouTube Data API key |
+
+<CodeGroup>
+```bash Example Request
+curl "https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=dQw4w9WgXcQ&maxResults=20&order=relevance&key=YOUR_API_KEY"
+```
+
+```json Example Response
+{
+  "items": [
+    {
+      "id": "UgxKREWJwNdw8tDx6AR4AaABAg",
+      "snippet": {
+        "topLevelComment": {
+          "snippet": {
+            "textDisplay": "This is amazing! Great work OpenAI.",
+            "authorDisplayName": "John Doe",
+            "publishedAt": "2024-03-12T11:30:00Z",
+            "likeCount": 42
+          }
+        }
+      }
+    }
+  ]
+}
+```
+</CodeGroup>
+
+## Data Extraction
+
+### Comment Structure
+
+YouTube comments are nested inside the response:
+
+```typescript
+const snippet = comment.snippet?.topLevelComment?.snippet;
+
+const author = snippet.authorDisplayName || "Anonymous";
+const content = snippet.textDisplay?.replace(/<[^>]*>/g, "") || "";
+const posted_at = snippet.publishedAt;
+```
+
+<Warning>
+`textDisplay` contains HTML tags (e.g., `<br>`, `<a>`). Always strip HTML before storing:
+```typescript
+content: snippet.textDisplay?.replace(/<[^>]*>/g, "") || ""
+```
+</Warning>
+
+### Comment Ordering
+
+The API supports two ordering strategies:
+
+<CodeGroup>
+```typescript Relevance (Default)
+// Returns top comments by engagement (likes, replies)
+commentsUrl.searchParams.set("order", "relevance");
+```
+
+```typescript Time
+// Returns newest comments first
+commentsUrl.searchParams.set("order", "time");
+```
+</CodeGroup>
+
+<Accordion title="Why use 'relevance' instead of 'time'?">
+**Relevance-sorted comments** are better for sentiment analysis because:
+1. Higher engagement = more representative of viewer opinions
+2. Top comments are more likely to be substantive (not spam)
+3. Controversial opinions rise to the top (important for sentiment diversity)
+
+Time-sorted comments may include spam, bots, and low-quality content.
+</Accordion>
+
+## Error Handling
+
+### API Error Detection
+
+```typescript
+if (!searchResponse.ok) {
+  const errText = await searchResponse.text().catch(() => "");
+  console.error(
+    `YouTube search API error [${searchResponse.status}]: ${errText.substring(0, 200)}`
+  );
+  return new Response(
+    JSON.stringify({
+      success: false,
+      fetched: 0,
+      inserted: 0,
+      info: `YouTube API returned ${searchResponse.status}`,
+    }),
+    { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+  );
+}
+```
+
+### Common HTTP Status Codes
+
+| Status | Meaning | Solution |
+|--------|---------|----------|
+| `200` | Success | Process data |
+| `400` | Bad Request | Check query parameters |
+| `403` | Forbidden | API key invalid or quota exceeded |
+| `404` | Not Found | Video doesn't exist or has comments disabled |
+
+<Warning>
+**403 Forbidden** usually means quota exceeded. YouTube allows **10,000 quota units/day** for free tier.
+
+Cost breakdown:
+- `search`: 100 units
+- `commentThreads`: 1 unit
+
+Fetching 5 videos + 20 comments each = 100 + (5 × 1) = **105 units per query**
+</Warning>
+
+## Rate Limits & Quota
+
+### YouTube Data API v3 Quota
+
+<Info>
+**Free Tier:** 10,000 units/day  
+**Paid Tier:** Request quota increase via Google Cloud Console
+</Info>
+
+### Quota Costs
+
+| Operation | Cost | Notes |
+|-----------|------|-------|
+| `search` | 100 units | Per request |
+| `commentThreads` | 1 unit | Per video |
+| `videos` | 1 unit | Not used in SENTi-radar |
+
+### Daily Usage Calculation
+
+```typescript
+// Current implementation:
+// - 1 search (5 videos) = 100 units
+// - 5 commentThreads = 5 units
+// Total per topic = 105 units
+
+// Max topics per day = 10,000 / 105 ≈ 95 topics
+```
+
+<Note>
+To analyze more topics, reduce `maxResults` for search or skip videos with comments disabled.
+</Note>
+
+## No Results Handling
+
+```typescript
+if (videoIds.length === 0) {
+  return new Response(
+    JSON.stringify({
+      success: true,
+      fetched: 0,
+      inserted: 0,
+      info: "No YouTube videos found for this topic",
+    }),
+    { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+  );
+}
+```
+
+<Accordion title="Why return success: true when no videos found?">
+This prevents the orchestrator from treating it as a failure. No videos is a **valid outcome** (e.g., query is too new or niche), not an error.
+
+Errors should only be returned for:
+- API authentication failures
+- Network timeouts
+- Malformed requests
+</Accordion>
+
+## Database Persistence
+
+```typescript
+for (const comment of comments) {
+  const snippet = comment.snippet?.topLevelComment?.snippet;
+  if (!snippet) continue;
+
+  const { error } = await supabase.from("posts").upsert(
+    {
+      topic_id,
+      platform: "youtube",
+      external_id: comment.id,
+      author: snippet.authorDisplayName || "Anonymous",
+      content: snippet.textDisplay?.replace(/<[^>]*>/g, "") || "",
+      posted_at: snippet.publishedAt,
+    },
+    { onConflict: "platform,external_id" }
+  );
+  if (!error) totalInserted++;
+}
+```
+
+## Response Format
+
+```json
+{
+  "success": true,
+  "fetched": 87,
+  "inserted": 85,
+  "info": "Fetched comments from 5 videos"
+}
+```
+
+### Response Fields
+
+- `success`: `true` if API calls succeeded (even if no comments found)
+- `fetched`: Total comments retrieved from YouTube
+- `inserted`: Comments successfully saved (may be less than fetched due to duplicates)
+
+## Environment Setup
+
+### 1. Create YouTube API Key
+
+<Steps>
+  <Step title="Go to Google Cloud Console">
+    Visit [console.cloud.google.com](https://console.cloud.google.com)
+  </Step>
+  <Step title="Create or select project">
+    Click **Select a project** → **New Project**
+  </Step>
+  <Step title="Enable YouTube Data API v3">
+    **APIs & Services** → **Enable APIs and Services** → Search "YouTube Data API v3" → **Enable**
+  </Step>
+  <Step title="Create API Key">
+    **Credentials** → **Create Credentials** → **API Key**
+  </Step>
+  <Step title="Restrict API Key (recommended)">
+    Click **Restrict Key** → **API restrictions** → Select "YouTube Data API v3"
+  </Step>
+</Steps>
+
+### 2. Configure Environment
+
+<CodeGroup>
+```bash .env
+YOUTUBE_API_KEY=AIzaSyBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_key
+```
+</CodeGroup>
+
+## Testing
+
+<CodeGroup>
+```bash Local Testing
+supabase functions serve fetch-youtube --env-file .env
+
+curl -X POST http://localhost:54321/functions/v1/fetch-youtube \
+  -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"topic_id": "your-topic-uuid"}'
+```
+
+```bash Production Deploy
+supabase functions deploy fetch-youtube
+```
+
+```bash Test API Key
+curl "https://www.googleapis.com/youtube/v3/search?part=snippet&q=test&key=${YOUTUBE_API_KEY}"
+```
+</CodeGroup>
+
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="403 Forbidden: quotaExceeded">
+    **Cause:** Daily quota limit (10,000 units) exceeded
+
+    **Solutions:**
+    1. Wait until quota resets (midnight Pacific Time)
+    2. Request quota increase in Google Cloud Console
+    3. Reduce `maxResults` in search and commentThreads
+    4. Implement caching to avoid redundant API calls
+  </Accordion>
+
+  <Accordion title="403 Forbidden: commentsDisabled">
+    **Cause:** Video creator disabled comments
+
+    **Solution:** The code already handles this gracefully:
+    ```typescript
+    if (!commentsResponse.ok) {
+      console.error(`Comments fetch failed for video ${videoId}`);
+      await commentsResponse.text(); // consume body
+      continue; // Skip to next video
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="API returns empty items array">
+    **Causes:**
+    1. Query has no YouTube videos (check youtube.com/results manually)
+    2. All videos have comments disabled
+    3. Videos are age-restricted or private
+
+    **Debug:**
+    ```bash
+    # Test search manually
+    curl "https://www.googleapis.com/youtube/v3/search?part=snippet&q=YOUR_QUERY&type=video&key=${YOUTUBE_API_KEY}" | jq '.items | length'
+    ```
+  </Accordion>
+
+  <Accordion title="textDisplay contains HTML tags">
+    **Problem:** Raw comment text includes `<br>`, `<a>` tags
+
+    **Solution:** Already implemented in code:
+    ```typescript
+    content: snippet.textDisplay?.replace(/<[^>]*>/g, "") || ""
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Optimization Tips
+
+<AccordionGroup>
+  <Accordion title="Reduce Quota Usage">
+    ```typescript
+    // Change maxResults to reduce quota consumption
+    searchUrl.searchParams.set("maxResults", "3");  // Was 5
+    commentsUrl.searchParams.set("maxResults", "10"); // Was 20
+    
+    // New quota: 100 + (3 × 1) = 103 units per topic
+    // Max topics per day: 10,000 / 103 ≈ 97
+    ```
+  </Accordion>
+
+  <Accordion title="Parallelize Comment Fetching">
+    ```typescript
+    // Fetch all video comments in parallel instead of sequentially
+    const commentPromises = videoIds.map(videoId => 
+      fetch(buildCommentsUrl(videoId))
+    );
+    const commentResults = await Promise.allSettled(commentPromises);
+    
+    // Reduces total latency by ~70%
+    ```
+  </Accordion>
+
+  <Accordion title="Cache Video IDs">
+    ```typescript
+    // Store video IDs in database to avoid re-searching
+    await supabase.from("youtube_cache").insert({
+      topic_id,
+      video_ids: videoIds,
+      cached_at: new Date().toISOString()
+    });
+    
+    // Check cache before calling search API
+    const { data: cached } = await supabase
+      .from("youtube_cache")
+      .select("video_ids")
+      .eq("topic_id", topicId)
+      .gte("cached_at", oneHourAgo)
+      .single();
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Data Sources Overview" icon="diagram-project" href="/sources/overview">
+    Understand the complete data pipeline
+  </Card>
+  <Card title="Sentiment Analysis" icon="brain" href="/features/sentiment-analysis">
+    How YouTube comments are analyzed
+  </Card>
+</CardGroup>

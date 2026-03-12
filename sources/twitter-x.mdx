@@ -1,0 +1,391 @@
+---
+title: 'Twitter/X Data Source'
+description: 'Real-time tweet collection via Scrape.do with multi-tier fallback'
+---
+
+## Overview
+
+The Twitter/X integration uses Scrape.do's JavaScript rendering capabilities to scrape live tweets from X.com search results. This approach is necessary because X deprecated public API access and requires authentication for all data retrieval.
+
+<Info>
+The fetch-twitter edge function implements a sophisticated fallback strategy: Scrape.do (X + Reddit) → Parallel.ai → YouTube → Algorithmic generation.
+</Info>
+
+## How It Works
+
+The `fetch-twitter` edge function (`supabase/functions/fetch-twitter/index.ts`) orchestrates the entire data collection pipeline:
+
+### Step 1: Scrape.do for X and Reddit (Parallel)
+
+```typescript
+if (SCRAPE_DO_TOKEN) {
+  const xUrl = `https://x.com/search?q=${encodeURIComponent(topic.query)}&src=typed_query&f=live`;
+  const redditUrl = `https://www.reddit.com/search.json?q=${encodeURIComponent(topic.query)}&sort=new&limit=25`;
+
+  const [xResult, redditResult] = await Promise.allSettled([
+    fetch(buildScrapeDoUrl(SCRAPE_DO_TOKEN, xUrl, { 
+      render: true, 
+      waitUntil: "networkidle0" 
+    })),
+    fetch(buildScrapeDoUrl(SCRAPE_DO_TOKEN, redditUrl, { 
+      render: false 
+    })),
+  ]);
+
+  if (xResult.status === "fulfilled" && xResult.value.ok) {
+    const html = await xResult.value.text();
+    const xPosts = parseXHtml(html, topic.query);
+    posts.push(...xPosts);
+  }
+}
+```
+
+<Note>
+**Why parallel fetching?** Scrape.do supports concurrent requests, and fetching X + Reddit simultaneously reduces total latency by ~50%.
+</Note>
+
+### Step 2: Parallel.ai Fallback
+
+If Scrape.do returns no data or is unavailable, the system tries Parallel.ai's social search:
+
+```typescript
+if (posts.length === 0 && PARALLEL_API_KEY) {
+  const parallelRes = await fetch("https://api.parallel.ai/v1beta/search", {
+    method: "POST",
+    headers: {
+      "x-api-key": PARALLEL_API_KEY,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      objective: `Recent public opinions, discussions, and social media mentions about "${topic.query}" from Reddit, forums, and news.`,
+      max_results: 10,
+    }),
+  });
+
+  if (parallelRes.ok) {
+    const parallelData = await parallelRes.json();
+    const excerpts = parallelData?.excerpts || [];
+    posts = excerpts.map((e, i) => ({
+      id: `parallel_${topic_id}_${i}`,
+      text: e.text || "",
+      author: e.source_url ? new URL(e.source_url).hostname : "web_source",
+      platform: "web",
+    }));
+  }
+}
+```
+
+### Step 3: YouTube Fallback
+
+```typescript
+if (posts.length === 0 && YOUTUBE_API_KEY) {
+  const ytUrl = new URL("https://www.googleapis.com/youtube/v3/search");
+  ytUrl.searchParams.set("part", "snippet");
+  ytUrl.searchParams.set("q", topic.query);
+  ytUrl.searchParams.set("maxResults", "15");
+  ytUrl.searchParams.set("type", "video");
+  ytUrl.searchParams.set("key", YOUTUBE_API_KEY);
+
+  const ytRes = await fetch(ytUrl.toString());
+  if (ytRes.ok) {
+    const ytData = await ytRes.json();
+    posts = (ytData.items || []).map((item) => ({
+      id: item.id?.videoId || Math.random().toString(),
+      text: `${item.snippet.title}: ${item.snippet.description}`,
+      author: item.snippet.channelTitle || "youtube_user",
+      platform: "youtube",
+    }));
+  }
+}
+```
+
+### Step 4: Algorithmic Fallback
+
+<Warning>
+This fallback generates synthetic template-based posts. It's only triggered when all real data sources fail.
+</Warning>
+
+```typescript
+if (posts.length === 0) {
+  sourceInfo = "Algorithmic Generation";
+  const templates = [
+    `Huge buzz around ${topic.query} today!`,
+    `People are really divided on the ${topic.query} situation.`,
+    `The latest update for ${topic.query} is a total game changer.`,
+    `Not impressed with ${topic.query} lately. Too much hype.`,
+    `Why is nobody talking about ${topic.query}? This is massive.`
+  ];
+  posts = Array.from({ length: 10 }, (_, i) => ({
+    id: `algo_${topic_id}_${i}`,
+    text: templates[i % templates.length],
+    author: `user_${Math.floor(Math.random() * 1000)}`,
+    platform: "simulated",
+  }));
+}
+```
+
+## HTML Parsing
+
+X.com renders tweets inside React components. The parser targets specific data attributes:
+
+### Parser Implementation
+
+```typescript
+function parseXHtml(html: string, query: string): ScrapedPost[] {
+  const posts: ScrapedPost[] = [];
+  let idx = 0;
+
+  // Strategy 1: article[data-testid="tweet"] elements
+  const articleRe = /<article[^>]*data-testid="tweet"[^>]*>([\s\S]*?)<\/article>/gi;
+  let m: RegExpExecArray | null;
+  
+  while ((m = articleRe.exec(html)) !== null && posts.length < 20) {
+    const articleHtml = m[1];
+    
+    // Extract tweet text
+    const textMatch = articleHtml.match(
+      /data-testid="tweetText"[^>]*>([\s\S]*?)<\/div>/i
+    );
+    
+    // Extract username
+    const userMatch = articleHtml.match(
+      /data-testid="User-Name"[\s\S]*?<span[^>]*>(@[\w]+)<\/span>/i
+    );
+    
+    if (textMatch) {
+      const text = decodeEntities(stripTags(textMatch[1]));
+      if (text.length > 10 && text.length < 600) {
+        posts.push({
+          id: `x_${idx++}`,
+          text,
+          author: userMatch?.[1] ?? "@x_user",
+          platform: "x",
+          created_at: new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  // Strategy 2: lang="en" span fallback
+  if (posts.length === 0) {
+    const spanRe = /<span[^>]*lang="en"[^>]*>([\s\S]*?)<\/span>/gi;
+    let spanMatch: RegExpExecArray | null;
+    while ((spanMatch = spanRe.exec(html)) !== null && posts.length < 15) {
+      const text = decodeEntities(stripTags(spanMatch[1]));
+      if (text.length > 20 && text.length < 500) {
+        posts.push({
+          id: `x_span_${idx++}`,
+          text,
+          author: "@x_user",
+          platform: "x",
+          created_at: new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  return posts;
+}
+```
+
+### HTML Sanitization
+
+```typescript
+function decodeEntities(text: string): string {
+  return text
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&");
+}
+
+function stripTags(html: string): string {
+  return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+```
+
+## Scrape.do Configuration
+
+<CodeGroup>
+```typescript X (Requires Rendering)
+buildScrapeDoUrl(SCRAPE_DO_TOKEN, xUrl, { 
+  render: true,           // Enable JavaScript execution
+  waitUntil: "networkidle0", // Wait for all network requests
+  super: false,           // Standard proxies (residential optional)
+  geoCode: "us"           // US-based proxies
+});
+```
+
+```typescript Reddit (No Rendering)
+buildScrapeDoUrl(SCRAPE_DO_TOKEN, redditUrl, { 
+  render: false  // JSON API doesn't need JS rendering
+});
+```
+</CodeGroup>
+
+<Accordion title="Why waitUntil: 'networkidle0' for X?">
+X.com is a React SPA that loads tweets asynchronously. `networkidle0` ensures all AJAX requests complete before HTML is captured. Without this, you'll receive the loading skeleton instead of actual tweets.
+
+Other wait strategies:
+- `networkidle2`: Waits for ≤2 network connections (faster but less reliable)
+- `load`: Waits for DOMContentLoaded event only (too early for X)
+- `domcontentloaded`: Waits for initial HTML parse (misses dynamic content)
+</Accordion>
+
+## Rate Limits & Error Handling
+
+### Scrape.do HTTP Status Codes
+
+| Status | Meaning | Action |
+|--------|---------|--------|
+| `200` | Success | Parse and store data |
+| `402` | Payment Required | Quota exceeded, trigger fallback |
+| `403` | Forbidden | IP/proxy blocked, trigger fallback |
+| `407` | Proxy Authentication Required | Proxy issue, trigger fallback |
+| `429` | Too Many Requests | Rate limited, trigger fallback |
+
+### Error Detection
+
+```typescript
+if (res.ok) {
+  const html = await res.text();
+  
+  // Detect login wall
+  const isLoginWall = html.toLowerCase().includes("log in to x") 
+                   && !html.includes('data-testid="tweet"');
+  
+  if (isLoginWall) {
+    scrapeStatus = "blocked";
+  } else {
+    const posts = parseXHtml(html, topic.query);
+    scrapeStatus = posts.length > 0 ? "ok" : "blocked";
+  }
+}
+```
+
+<Warning>
+**Common pitfall:** X sometimes returns HTTP 200 with a login wall instead of 403. Always check HTML content for authentication prompts.
+</Warning>
+
+## Database Persistence
+
+```typescript
+let inserted = 0;
+for (const post of posts) {
+  const { error } = await supabase.from("posts").upsert(
+    {
+      topic_id,
+      platform: post.platform || "x",
+      external_id: post.id,
+      author: post.author.startsWith("@") ? post.author : `@${post.author}`,
+      content: post.text,
+      posted_at: post.created_at,
+    },
+    { onConflict: "platform,external_id" }  // Prevent duplicates
+  );
+  if (!error) inserted++;
+}
+```
+
+<Note>
+The `onConflict: "platform,external_id"` ensures idempotency. Re-running the same query won't create duplicate posts.
+</Note>
+
+## Response Format
+
+```json
+{
+  "success": true,
+  "fetched": 25,
+  "inserted": 23,
+  "info": "Scrape.do (X: 15, Reddit: 10)",
+  "scrape_status": "ok"
+}
+```
+
+### Response Fields
+
+- `success`: `true` if any posts were collected
+- `fetched`: Total posts scraped across all sources
+- `inserted`: Posts successfully saved to database (may be less than fetched due to duplicates)
+- `info`: Human-readable source description
+- `scrape_status`: `ok | blocked | quota | no_token | error`
+
+## Environment Setup
+
+<CodeGroup>
+```bash .env
+SCRAPE_DO_TOKEN=your_scrape_do_token_here
+PARALLEL_API_KEY=your_parallel_ai_key  # Optional fallback
+YOUTUBE_API_KEY=your_youtube_key       # Optional fallback
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_key
+```
+</CodeGroup>
+
+## Testing
+
+<CodeGroup>
+```bash Local Testing
+supabase functions serve fetch-twitter --env-file .env
+
+curl -X POST http://localhost:54321/functions/v1/fetch-twitter \
+  -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"topic_id": "your-topic-uuid"}'
+```
+
+```bash Production Deploy
+supabase functions deploy fetch-twitter
+```
+</CodeGroup>
+
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="No tweets returned (scrape_status: blocked)">
+    **Causes:**
+    - X login wall detected
+    - Scrape.do proxy blocked
+    - JavaScript rendering timeout
+
+    **Solutions:**
+    1. Enable `super: true` for residential proxies
+    2. Increase Scrape.do plan tier for better IP rotation
+    3. Check if query returns results on X.com manually
+  </Accordion>
+
+  <Accordion title="Quota exceeded (scrape_status: quota)">
+    **Cause:** Scrape.do monthly request limit reached
+
+    **Solutions:**
+    - Upgrade Scrape.do plan
+    - Rely on Parallel.ai or YouTube fallbacks
+    - Implement request caching to reduce API calls
+  </Accordion>
+
+  <Accordion title="Parser returns empty array despite HTTP 200">
+    **Cause:** X.com changed HTML structure
+
+    **Solution:** Update regex patterns in `parseXHtml()` based on current X.com DOM:
+    ```bash
+    # Inspect current X.com structure
+    curl "$(buildScrapeDoUrl TOKEN 'https://x.com/search?q=test')" > x.html
+    grep -o 'data-testid="[^"]*"' x.html | sort -u
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Reddit Integration" icon="reddit" href="/sources/reddit">
+    Learn about Reddit data collection
+  </Card>
+  <Card title="Sentiment Analysis" icon="brain" href="/features/sentiment-analysis">
+    How collected tweets are analyzed
+  </Card>
+</CardGroup>

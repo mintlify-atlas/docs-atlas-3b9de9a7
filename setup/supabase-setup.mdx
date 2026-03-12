@@ -1,0 +1,511 @@
+---
+title: Supabase Setup
+description: Complete guide to configuring Supabase for SENTi-radar database and edge functions
+---
+
+SENTi-radar uses Supabase for PostgreSQL database, authentication, and edge functions. This guide walks you through setting up your Supabase project from scratch.
+
+## Prerequisites
+
+- [Supabase account](https://supabase.com) (free tier available)
+- [Supabase CLI](https://supabase.com/docs/guides/cli) installed
+- Node.js 18+ and npm installed
+
+## Quick Start
+
+<Steps>
+  <Step title="Create a Supabase project">
+    1. Go to [supabase.com](https://supabase.com) and sign in
+    2. Click **New Project**
+    3. Choose an organization
+    4. Enter project details:
+       - **Name:** `senti-radar` (or your preferred name)
+       - **Database Password:** Generate a strong password and save it
+       - **Region:** Choose closest to your users
+    5. Click **Create new project** and wait for provisioning (~2 minutes)
+  </Step>
+
+  <Step title="Install Supabase CLI">
+    ```bash
+    # macOS/Linux
+    brew install supabase/tap/supabase
+
+    # Windows (PowerShell)
+    scoop bucket add supabase https://github.com/supabase/scoop-bucket.git
+    scoop install supabase
+
+    # npm (all platforms)
+    npm install -g supabase
+    ```
+
+    Verify installation:
+    ```bash
+    supabase --version
+    ```
+  </Step>
+
+  <Step title="Link your project">
+    ```bash
+    # Login to Supabase
+    supabase login
+
+    # Link to your project
+    supabase link --project-ref your-project-ref
+    ```
+
+    Find your project ref in the Supabase dashboard URL:
+    `https://supabase.com/dashboard/project/[your-project-ref]`
+  </Step>
+
+  <Step title="Get your API credentials">
+    Navigate to **Project Settings → API** in the Supabase dashboard.
+
+    Copy these values to your `.env` file:
+    ```bash
+    VITE_SUPABASE_URL=https://your-project.supabase.co
+    VITE_SUPABASE_PUBLISHABLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    ```
+  </Step>
+</Steps>
+
+## Database Schema
+
+SENTi-radar uses the following database tables. The schema is automatically created during initial app setup, but you can manually create it if needed.
+
+### Core Tables
+
+#### `topics`
+Stores user-created topics for sentiment monitoring.
+
+```sql
+create table topics (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  title text not null,
+  query text not null,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+```
+
+#### `posts`
+Stores scraped social media posts for analysis.
+
+```sql
+create table posts (
+  id uuid primary key default gen_random_uuid(),
+  topic_id uuid references topics(id) on delete cascade not null,
+  platform text not null, -- 'x', 'reddit', 'youtube', 'web', 'simulated'
+  external_id text not null,
+  author text,
+  content text not null,
+  posted_at timestamptz,
+  fetched_at timestamptz default now(),
+  sentiment text, -- 'positive', 'negative', 'mixed', 'neutral'
+  primary_emotion text, -- 'joy', 'anger', 'sadness', 'fear', 'surprise', 'disgust'
+  emotion_scores jsonb,
+  unique(platform, external_id)
+);
+```
+
+#### `topic_stats`
+Aggregated statistics and AI summaries for each topic.
+
+```sql
+create table topic_stats (
+  id uuid primary key default gen_random_uuid(),
+  topic_id uuid references topics(id) on delete cascade not null unique,
+  total_volume integer default 0,
+  volume_change integer default 0,
+  overall_sentiment text, -- 'positive', 'negative', 'mixed', 'neutral'
+  crisis_level text, -- 'none', 'low', 'medium', 'high'
+  volatility integer default 0,
+  emotion_breakdown jsonb,
+  top_phrases jsonb,
+  ai_summary text,
+  key_takeaways jsonb,
+  computed_at timestamptz default now()
+);
+```
+
+#### `sentiment_timeline`
+Time-series data for sentiment trend charts.
+
+```sql
+create table sentiment_timeline (
+  id uuid primary key default gen_random_uuid(),
+  topic_id uuid references topics(id) on delete cascade not null,
+  timestamp timestamptz default now(),
+  positive_pct integer,
+  negative_pct integer,
+  neutral_pct integer,
+  volume integer
+);
+```
+
+#### `alerts`
+Crisis alerts and notifications.
+
+```sql
+create table alerts (
+  id uuid primary key default gen_random_uuid(),
+  topic_id uuid references topics(id) on delete cascade not null,
+  alert_type text not null, -- 'crisis_spike', 'volume_surge', 'sentiment_shift'
+  message text not null,
+  severity text, -- 'low', 'medium', 'high'
+  created_at timestamptz default now(),
+  acknowledged boolean default false
+);
+```
+
+### Indexes
+
+Create indexes for performance:
+
+```sql
+create index idx_posts_topic_id on posts(topic_id);
+create index idx_posts_sentiment on posts(sentiment);
+create index idx_posts_fetched_at on posts(fetched_at desc);
+create index idx_sentiment_timeline_topic_id on sentiment_timeline(topic_id);
+create index idx_sentiment_timeline_timestamp on sentiment_timeline(timestamp desc);
+create index idx_alerts_topic_id on alerts(topic_id);
+```
+
+## Edge Functions
+
+SENTi-radar uses Supabase Edge Functions (Deno runtime) for server-side data processing.
+
+### Available Functions
+
+<AccordionGroup>
+  <Accordion title="fetch-twitter" icon="twitter">
+    Fetches live posts from X (Twitter), Reddit, YouTube, and Parallel.ai.
+    
+    **Priority order:**
+    1. Scrape.do (X + Reddit)
+    2. Parallel.ai (social search fallback)
+    3. YouTube Data API
+    4. Algorithmic generation (guaranteed fallback)
+    
+    **Required secrets:**
+    - `SCRAPE_DO_TOKEN`
+    - `SUPABASE_URL`
+    - `SUPABASE_SERVICE_ROLE_KEY`
+    
+    **Optional secrets:**
+    - `PARALLEL_API_KEY`
+    - `YOUTUBE_API_KEY`
+  </Accordion>
+
+  <Accordion title="analyze-sentiment" icon="brain">
+    Analyzes sentiment and emotions using Gemini AI with keyword-based fallback.
+    
+    **Features:**
+    - Classifies sentiment: positive, negative, mixed, neutral
+    - Identifies 6 emotions: joy, anger, sadness, fear, surprise, disgust
+    - Generates AI summaries and key takeaways
+    - Detects crisis spikes
+    
+    **Required secrets:**
+    - `SUPABASE_URL`
+    - `SUPABASE_SERVICE_ROLE_KEY`
+    
+    **Optional secrets:**
+    - `GEMINI_API_KEY` (falls back to keyword analysis if not set)
+  </Accordion>
+
+  <Accordion title="fetch-youtube" icon="youtube">
+    Fetches YouTube video search results and metadata.
+    
+    **Required secrets:**
+    - `YOUTUBE_API_KEY`
+    - `SUPABASE_URL`
+    - `SUPABASE_SERVICE_ROLE_KEY`
+  </Accordion>
+
+  <Accordion title="analyze-topic" icon="magnifying-glass">
+    Performs comprehensive topic analysis combining all data sources.
+    
+    **Required secrets:**
+    - `SUPABASE_URL`
+    - `SUPABASE_SERVICE_ROLE_KEY`
+  </Accordion>
+
+  <Accordion title="generate-insights" icon="lightbulb">
+    Generates AI-powered insights and recommendations.
+    
+    **Required secrets:**
+    - `GEMINI_API_KEY`
+    - `SUPABASE_URL`
+    - `SUPABASE_SERVICE_ROLE_KEY`
+  </Accordion>
+
+  <Accordion title="scheduled-monitor" icon="clock">
+    Scheduled function for automated topic monitoring (runs via cron).
+    
+    **Required secrets:**
+    - `SUPABASE_URL`
+    - `SUPABASE_SERVICE_ROLE_KEY`
+  </Accordion>
+</AccordionGroup>
+
+### Deploy Edge Functions
+
+<CodeGroup>
+```bash Deploy All Functions
+# Deploy all functions at once
+supabase functions deploy fetch-twitter
+supabase functions deploy analyze-sentiment
+supabase functions deploy fetch-youtube
+supabase functions deploy analyze-topic
+supabase functions deploy generate-insights
+supabase functions deploy scheduled-monitor
+```
+
+```bash Deploy Single Function
+# Deploy a specific function
+supabase functions deploy fetch-twitter
+
+# Deploy with environment variables
+supabase functions deploy fetch-twitter \
+  --no-verify-jwt
+```
+
+```bash Local Development
+# Serve functions locally
+supabase functions serve
+
+# Serve specific function
+supabase functions serve fetch-twitter --env-file .env
+
+# Test function locally
+curl -i --location --request POST 'http://localhost:54321/functions/v1/fetch-twitter' \
+  --header 'Content-Type: application/json' \
+  --data '{"topic_id":"your-topic-uuid"}'
+```
+</CodeGroup>
+
+### Function Configuration
+
+The edge functions are configured in `supabase/config.toml`:
+
+```toml
+project_id = "owrqiailcuwlzxeekhms"
+
+[functions.analyze-sentiment]
+verify_jwt = false
+
+[functions.fetch-twitter]
+verify_jwt = false
+
+[functions.fetch-youtube]
+verify_jwt = false
+
+[functions.analyze-topic]
+verify_jwt = false
+
+[functions.scheduled-monitor]
+verify_jwt = false
+
+[functions.generate-insights]
+verify_jwt = false
+
+[auth]
+site_url = "http://localhost:5173"
+email_confirm_by_default = false
+```
+
+<Warning>
+  JWT verification is disabled (`verify_jwt = false`) for all functions. In production, consider enabling JWT verification and passing authentication tokens from your client.
+</Warning>
+
+## Set Edge Function Secrets
+
+Set required secrets for your edge functions:
+
+```bash
+# Required for all functions
+supabase secrets set SUPABASE_URL=https://your-project.supabase.co
+supabase secrets set SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+
+# Required for fetch-twitter
+supabase secrets set SCRAPE_DO_TOKEN=your-scrape-do-token
+
+# Optional fallbacks
+supabase secrets set PARALLEL_API_KEY=your-parallel-key
+supabase secrets set YOUTUBE_API_KEY=your-youtube-key
+
+# Required for AI features
+supabase secrets set GEMINI_API_KEY=your-gemini-key
+```
+
+Verify secrets are set:
+
+```bash
+supabase secrets list
+```
+
+## Authentication Setup
+
+<Note>
+  SENTi-radar currently has authentication disabled (`email_confirm_by_default = false`). Enable authentication if you want to add user accounts.
+</Note>
+
+To enable email authentication:
+
+1. Go to **Authentication → Providers** in Supabase dashboard
+2. Enable **Email** provider
+3. Configure email templates
+4. Update `config.toml`:
+
+```toml
+[auth]
+site_url = "https://your-domain.com"
+email_confirm_by_default = true
+additional_redirect_urls = ["http://localhost:5173"]
+```
+
+## Row Level Security (RLS)
+
+<Warning>
+  RLS policies should be enabled in production to secure user data.
+</Warning>
+
+Example RLS policies for the `topics` table:
+
+```sql
+-- Enable RLS
+alter table topics enable row level security;
+
+-- Users can view their own topics
+create policy "Users can view own topics"
+  on topics for select
+  using (auth.uid() = user_id);
+
+-- Users can insert their own topics
+create policy "Users can create topics"
+  on topics for insert
+  with check (auth.uid() = user_id);
+
+-- Users can update their own topics
+create policy "Users can update own topics"
+  on topics for update
+  using (auth.uid() = user_id);
+
+-- Users can delete their own topics
+create policy "Users can delete own topics"
+  on topics for delete
+  using (auth.uid() = user_id);
+```
+
+## Monitoring & Logs
+
+### View Function Logs
+
+```bash
+# Tail logs for a specific function
+supabase functions logs fetch-twitter --tail
+
+# View recent logs
+supabase functions logs analyze-sentiment --limit 100
+```
+
+### Database Logs
+
+View database logs in the Supabase dashboard:
+- **Logs → Postgres Logs**: SQL queries and errors
+- **Logs → API Logs**: REST API requests
+- **Logs → Functions Logs**: Edge function execution logs
+
+## Local Development
+
+<Steps>
+  <Step title="Initialize Supabase locally">
+    ```bash
+    supabase init
+    ```
+  </Step>
+
+  <Step title="Start local Supabase stack">
+    ```bash
+    supabase start
+    ```
+
+    This starts:
+    - PostgreSQL database on `localhost:54322`
+    - Studio UI on `http://localhost:54323`
+    - Edge Functions on `http://localhost:54321`
+  </Step>
+
+  <Step title="Apply migrations">
+    ```bash
+    supabase db reset
+    ```
+  </Step>
+
+  <Step title="Update local .env">
+    ```bash
+    VITE_SUPABASE_URL=http://localhost:54321
+    VITE_SUPABASE_PUBLISHABLE_KEY=your-local-anon-key
+    ```
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+### Connection Issues
+
+**Problem:** Cannot connect to Supabase from app
+
+**Solutions:**
+1. Verify project URL has no trailing slash
+2. Check anon key is correct (not service role key)
+3. Ensure project is active (not paused)
+4. Check network firewall/proxy settings
+
+### Function Deployment Fails
+
+**Problem:** `supabase functions deploy` fails
+
+**Solutions:**
+1. Ensure you're logged in: `supabase login`
+2. Verify project link: `supabase link --project-ref your-ref`
+3. Check function syntax (Deno TypeScript)
+4. Review function logs for errors
+
+### Secrets Not Working
+
+**Problem:** Edge functions can't access secrets
+
+**Solutions:**
+1. Verify secrets are set: `supabase secrets list`
+2. Redeploy functions after setting secrets
+3. Check secret names match exactly (case-sensitive)
+4. View function logs for specific errors
+
+### Database Performance
+
+**Problem:** Slow queries or timeouts
+
+**Solutions:**
+1. Add indexes on frequently queried columns
+2. Use `EXPLAIN ANALYZE` to identify slow queries
+3. Enable connection pooling
+4. Upgrade to a larger database instance
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" icon="code" href="./environment-variables">
+    Configure all environment variables
+  </Card>
+  <Card title="Scrape.do Integration" icon="globe" href="./scrape-do-integration">
+    Set up social media scraping
+  </Card>
+  <Card title="API Keys" icon="key" href="./api-keys">
+    Get YouTube, Gemini, and Groq API keys
+  </Card>
+  <Card title="Supabase Docs" icon="book" href="https://supabase.com/docs">
+    Official Supabase documentation
+  </Card>
+</CardGroup>

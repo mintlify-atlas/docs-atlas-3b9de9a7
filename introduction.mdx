@@ -1,0 +1,142 @@
+---
+title: Introduction
+description: "AI-powered real-time public sentiment analysis dashboard for tracking social media discussions across multiple platforms"
+---
+
+<img
+  className="block dark:hidden"
+  src="https://media.brand.dev/03ecb238-3ad7-438b-a6e5-10086f22db5a.svg"
+  alt="SENTi-radar"
+/>
+<img
+  className="hidden dark:block"
+  src="https://media.brand.dev/03ecb238-3ad7-438b-a6e5-10086f22db5a.svg"
+  alt="SENTi-radar"
+/>
+
+## Welcome to SENTi-radar
+
+SENTi-radar is a comprehensive real-time sentiment analysis platform that helps you understand public opinion across social media. Monitor topics, brands, hashtags, and events with AI-powered emotion classification and crisis detection.
+
+<CardGroup cols={2}>
+  <Card
+    title="Quick Start"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Get up and running in 5 minutes with our step-by-step guide
+  </Card>
+  <Card
+    title="Architecture"
+    icon="sitemap"
+    href="/architecture"
+  >
+    Learn how SENTi-radar processes and analyzes social data
+  </Card>
+  <Card
+    title="Data Sources"
+    icon="database"
+    href="/sources/overview"
+  >
+    Explore X (Twitter), Reddit, YouTube, and Google News integration
+  </Card>
+  <Card
+    title="Edge Functions"
+    icon="code"
+    href="/edge-functions/overview"
+  >
+    API reference for Supabase edge functions
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Real-Time Data Collection" icon="broadcast-tower">
+    Scrape live posts from X (Twitter), Reddit, YouTube comments, and Google News RSS feeds using Scrape.do's reliable proxy infrastructure
+  </Card>
+  <Card title="6-Emotion Classification" icon="face-smile">
+    Analyze sentiment across joy, anger, sadness, fear, surprise, and disgust using keyword-based emotion detection
+  </Card>
+  <Card title="Crisis Detection" icon="triangle-exclamation">
+    Automatic spike detection with volatility scoring to identify emerging crises and trending controversies
+  </Card>
+  <Card title="AI-Powered Insights" icon="sparkles">
+    Generate contextual summaries using Gemini or Groq with intelligent fallback to local analysis
+  </Card>
+  <Card title="Scheduled Monitoring" icon="clock">
+    Set up automated topic tracking with configurable alert thresholds and notification settings
+  </Card>
+  <Card title="Export & Reporting" icon="file-export">
+    Export analysis results to CSV or PDF with detailed emotion breakdowns and trend visualizations
+  </Card>
+</CardGroup>
+
+## Platform Architecture
+
+SENTi-radar is built on modern, scalable infrastructure:
+
+- **Frontend**: React 18 + TypeScript with Vite for fast builds
+- **UI Framework**: shadcn-ui components with Tailwind CSS styling
+- **Backend**: Supabase with PostgreSQL database and Deno edge functions
+- **Data Sources**: Scrape.do API for social media, YouTube Data API v3, Google News RSS
+- **AI Services**: Google Gemini and Groq for sentiment analysis and insights
+- **Visualizations**: Recharts for sentiment charts and emotion breakdowns
+- **State Management**: TanStack React Query for efficient data fetching
+
+## Use Cases
+
+<AccordionGroup>
+  <Accordion title="Brand Monitoring">
+    Track brand mentions across social platforms, detect sentiment shifts, and identify potential PR crises before they escalate
+  </Accordion>
+  <Accordion title="Political Analysis">
+    Monitor public opinion on political events, policy changes, and campaign messaging with real-time emotion tracking
+  </Accordion>
+  <Accordion title="Crisis Management">
+    Get instant alerts when volatility spikes indicate emerging issues, with AI-generated context and recommended actions
+  </Accordion>
+  <Accordion title="Market Research">
+    Understand consumer sentiment around product launches, competitive positioning, and industry trends
+  </Accordion>
+  <Accordion title="Event Tracking">
+    Follow public reaction to live events, conferences, or breaking news with minute-by-minute sentiment updates
+  </Accordion>
+</AccordionGroup>
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card
+    title="Environment Setup"
+    icon="gear"
+    href="/setup/environment-variables"
+  >
+    Configure API keys and credentials
+  </Card>
+  <Card
+    title="Scrape.do Integration"
+    icon="screwdriver-wrench"
+    href="/setup/scrape-do-integration"
+  >
+    Set up social media scraping
+  </Card>
+  <Card
+    title="Analyzing Topics"
+    icon="magnifying-glass-chart"
+    href="/guides/analyzing-topics"
+  >
+    Learn how to analyze any topic
+  </Card>
+  <Card
+    title="Understanding Metrics"
+    icon="chart-line"
+    href="/guides/understanding-metrics"
+  >
+    Deep dive into sentiment metrics
+  </Card>
+</CardGroup>
+
+<Note>
+  SENTi-radar works out of the box with local sentiment analysis. API keys for Scrape.do, YouTube, and AI services are optional but recommended for full functionality.
+</Note>

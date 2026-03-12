@@ -1,0 +1,219 @@
+---
+title: 'Data Sources Overview'
+description: 'How SENTi-radar collects real-time sentiment data from multiple platforms'
+---
+
+## Architecture
+
+SENTi-radar aggregates sentiment data from multiple social media and content platforms in real-time. The data collection pipeline uses a combination of official APIs, web scraping via Scrape.do, and intelligent fallback strategies to ensure reliable data delivery.
+
+## Supported Platforms
+
+The platform currently supports three primary data sources:
+
+<CardGroup cols={3}>
+  <Card title="Twitter/X" icon="x-twitter" href="/sources/twitter-x">
+    Real-time tweets and discussions via Scrape.do rendering
+  </Card>
+  <Card title="Reddit" icon="reddit" href="/sources/reddit">
+    Posts and comments from subreddits using JSON API
+  </Card>
+  <Card title="YouTube" icon="youtube" href="/sources/youtube">
+    Video comments via YouTube Data API v3
+  </Card>
+</CardGroup>
+
+## Data Flow
+
+When a new topic is analyzed, SENTi-radar orchestrates data collection through the `analyze-topic` edge function:
+
+```typescript
+// Orchestrator flow (supabase/functions/analyze-topic/index.ts)
+
+// 1. Create or retrieve topic
+const { data: newTopic } = await supabase
+  .from("topics")
+  .insert({
+    title: topicTitle,
+    hashtag: topicHashtag,
+    query,
+    is_trending: false,
+  })
+  .select()
+  .single();
+
+// 2. Fetch from Twitter/X (with YouTube fallback)
+await fetch(`${supabaseUrl}/functions/v1/fetch-twitter`, {
+  method: "POST",
+  body: JSON.stringify({ topic_id: topicId }),
+});
+
+// 3. Fetch from Reddit
+await fetch(`${supabaseUrl}/functions/v1/fetch-reddit`, {
+  method: "POST",
+  body: JSON.stringify({ topic_id: topicId }),
+});
+
+// 4. Fetch from YouTube
+await fetch(`${supabaseUrl}/functions/v1/fetch-youtube`, {
+  method: "POST",
+  body: JSON.stringify({ topic_id: topicId }),
+});
+
+// 5. Analyze sentiment
+await fetch(`${supabaseUrl}/functions/v1/analyze-sentiment`, {
+  method: "POST",
+  body: JSON.stringify({ topic_id: topicId }),
+});
+```
+
+## Scrape.do Integration
+
+<Info>
+Scrape.do is a premium web scraping API that handles JavaScript rendering, residential proxies, and CAPTCHA bypass for platforms that block traditional scraping.
+</Info>
+
+The `scrapeDoProvider.ts` service provides a unified interface for scraping:
+
+```typescript
+// Build Scrape.do API URL
+export function buildApiUrl(
+  token: string,
+  targetUrl: string,
+  options: ScrapeDoOptions = {}
+): string {
+  const params = new URLSearchParams();
+  params.set("token", token);
+  params.set("url", targetUrl);
+  if (options.render !== false) params.set("render", "true");
+  if (options.super) params.set("super", "true");
+  if (options.waitUntil) params.set("waitUntil", options.waitUntil);
+  if (options.geoCode) params.set("geoCode", options.geoCode);
+  return `https://api.scrape.do?${params.toString()}`;
+}
+```
+
+### Scrape.do Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `render` | boolean | `true` | Enable JavaScript rendering for SPAs |
+| `super` | boolean | `false` | Use residential/mobile proxies |
+| `waitUntil` | string | `networkidle0` | Wait strategy: `networkidle0`, `networkidle2`, `load`, `domcontentloaded` |
+| `geoCode` | string | - | ISO country code for geo-targeting (e.g., `us`, `gb`, `in`) |
+
+## Fallback Strategy
+
+The Twitter fetcher implements a sophisticated multi-tier fallback:
+
+<Steps>
+  <Step title="Primary: Scrape.do for Twitter/X">
+    Scrapes live tweets with JavaScript rendering and proxy rotation
+  </Step>
+  <Step title="Secondary: Scrape.do for Reddit">
+    Fetches Reddit posts in parallel if X scraping succeeds
+  </Step>
+  <Step title="Tertiary: Parallel.ai Social Search">
+    Uses AI-powered social search API when Scrape.do is unavailable
+  </Step>
+  <Step title="Final: YouTube API">
+    Falls back to YouTube comments when all social platforms fail
+  </Step>
+  <Step title="Algorithmic Simulation">
+    Generates synthetic data only when all sources are unavailable
+  </Step>
+</Steps>
+
+<Warning>
+The algorithmic fallback is a last resort and generates template-based synthetic posts. It's only triggered when all real data sources fail.
+</Warning>
+
+## Data Normalization
+
+All scraped posts are normalized into a consistent format before database insertion:
+
+```typescript
+interface ScrapedPost {
+  id: string;               // Unique identifier
+  text: string;             // Post content
+  author: string;           // Username with @ prefix
+  platform: string;         // Source platform: 'x', 'reddit', 'youtube'
+  url: string;              // Source URL
+  postedAt: string;         // ISO 8601 timestamp
+}
+
+// Database insertion
+await supabase.from("posts").upsert(
+  {
+    topic_id,
+    platform: post.platform,
+    external_id: post.id,
+    author: post.author,
+    content: post.text,
+    posted_at: post.postedAt,
+  },
+  { onConflict: "platform,external_id" }
+);
+```
+
+## Environment Variables
+
+Required configuration for data sources:
+
+<CodeGroup>
+```bash .env
+# Scrape.do API token (required for X and Reddit)
+SCRAPE_DO_TOKEN=your_scrape_do_token
+
+# YouTube Data API v3 key (required for YouTube)
+YOUTUBE_API_KEY=your_youtube_api_key
+
+# Parallel.ai API key (optional fallback)
+PARALLEL_API_KEY=your_parallel_api_key
+
+# Supabase credentials
+SUPABASE_URL=your_supabase_url
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+```
+</CodeGroup>
+
+## Error Handling
+
+Each data source implements graceful degradation:
+
+```typescript
+const scrapeStatus: "ok" | "blocked" | "quota" | "no_token" | "error" = "error";
+
+if (res.status === 402 || res.status === 429) {
+  scrapeStatus = "quota";  // API quota exceeded
+} else if (res.status === 403 || res.status === 407) {
+  scrapeStatus = "blocked"; // Proxy/IP blocked
+} else if (res.ok) {
+  scrapeStatus = "ok";      // Success
+}
+
+return {
+  success: scrapeStatus === "ok",
+  fetched: posts.length,
+  inserted: insertedCount,
+  scrape_status: scrapeStatus,
+};
+```
+
+<Note>
+The system never returns HTTP 500 errors to the orchestrator. Instead, it returns `success: false` with diagnostic info, allowing the pipeline to continue with other sources.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="Twitter/X Integration" icon="x-twitter" href="/sources/twitter-x">
+    Learn how X scraping works
+  </Card>
+  <Card title="Reddit Integration" icon="reddit" href="/sources/reddit">
+    Understand Reddit data collection
+  </Card>
+  <Card title="YouTube Integration" icon="youtube" href="/sources/youtube">
+    Configure YouTube API access
+  </Card>
+</CardGroup>

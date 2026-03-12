@@ -1,0 +1,409 @@
+---
+title: 'Testing'
+description: 'Writing and running tests for SENTi-radar'
+---
+
+## Testing Stack
+
+SENTi-radar uses modern testing tools designed for Vite + React:
+
+- **Vitest** - Fast unit test runner (Vite-native, Jest-compatible API)
+- **Testing Library** - React component testing utilities
+- **jsdom** - Browser environment simulation
+- **@testing-library/jest-dom** - Custom matchers for DOM assertions
+
+<Note>
+  Vitest is configured to use the same Vite config as your dev server, ensuring tests run in an environment matching production.
+</Note>
+
+## Configuration
+
+The test setup is defined in `vitest.config.ts`:
+
+```typescript vitest.config.ts
+import { defineConfig } from "vitest/config";
+import react from "@vitejs/plugin-react-swc";
+import path from "path";
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    environment: "jsdom",           // Simulate browser environment
+    globals: true,                   // Enable global test APIs
+    setupFiles: ["./src/test/setup.ts"],
+    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+  },
+  resolve: {
+    alias: { "@": path.resolve(__dirname, "./src") },
+  },
+});
+```
+
+### Global Test Setup
+
+The `src/test/setup.ts` file runs before all tests:
+
+```typescript src/test/setup.ts
+import "@testing-library/jest-dom";
+
+// Mock window.matchMedia for components using media queries
+Object.defineProperty(window, "matchMedia", {
+  writable: true,
+  value: (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => {},
+  }),
+});
+```
+
+This setup ensures components using `useMediaQuery` or `window.matchMedia` work correctly in tests.
+
+## Running Tests
+
+<CodeGroup>
+  ```bash Run Once
+  npm run test
+  ```
+
+  ```bash Watch Mode
+  npm run test:watch
+  ```
+
+  ```bash Specific File
+  npx vitest src/test/scrapeDoProvider.test.ts
+  ```
+
+  ```bash With Coverage
+  npx vitest --coverage
+  ```
+</CodeGroup>
+
+## Writing Unit Tests
+
+### Basic Test Structure
+
+Here's a simple example test:
+
+```typescript src/test/example.test.ts
+import { describe, it, expect } from "vitest";
+
+describe("example", () => {
+  it("should pass", () => {
+    expect(true).toBe(true);
+  });
+});
+```
+
+### Testing Services
+
+The `scrapeDoProvider.test.ts` file (267 lines) demonstrates comprehensive service testing:
+
+```typescript src/test/scrapeDoProvider.test.ts
+import { describe, it, expect } from "vitest";
+import {
+  buildApiUrl,
+  decodeEntities,
+  stripTags,
+  parseXHtml,
+  parseRedditJson,
+  fetchXPosts,
+  fetchRedditPosts,
+  fetchAllScrapeDoSources,
+} from "@/services/scrapeDoProvider";
+
+// ── buildApiUrl ──────────────────────────────────────────────
+
+describe("buildApiUrl", () => {
+  it("includes token and encoded target URL", () => {
+    const url = buildApiUrl("mytoken", "https://x.com/search?q=test");
+    expect(url).toContain("token=mytoken");
+    expect(url).toContain("url=https%3A");
+  });
+
+  it("sets render=true by default", () => {
+    const url = buildApiUrl("t", "https://x.com");
+    expect(url).toContain("render=true");
+  });
+
+  it("omits render when render=false", () => {
+    const url = buildApiUrl("t", "https://reddit.com", { render: false });
+    expect(url).not.toContain("render=true");
+  });
+
+  it("adds super=true when requested", () => {
+    const url = buildApiUrl("t", "https://x.com", { super: true });
+    expect(url).toContain("super=true");
+  });
+});
+```
+
+<Accordion title="Key Testing Patterns from scrapeDoProvider.test.ts">
+  **1. Testing HTML Entity Decoding**
+  ```typescript
+  describe("decodeEntities", () => {
+    it("decodes common HTML entities", () => {
+      expect(decodeEntities("Hello &amp; world")).toBe("Hello & world");
+      expect(decodeEntities("&lt;tag&gt;")).toBe("<tag>");
+      expect(decodeEntities("say &quot;hi&quot;")).toBe('say "hi"');
+    });
+  });
+  ```
+  
+  **2. Testing HTML Parsing**
+  ```typescript
+  describe("parseXHtml", () => {
+    it("parses tweet articles with tweetText and User-Name", () => {
+      const html = `
+        <article data-testid="tweet">
+          <div data-testid="User-Name"><span>@alice</span></div>
+          <div data-testid="tweetText">This is a great post about climate change.</div>
+        </article>
+      `;
+      const posts = parseXHtml(html, "climate change");
+      expect(posts).toHaveLength(1);
+      expect(posts[0].platform).toBe("x");
+      expect(posts[0].text).toContain("climate change");
+      expect(posts[0].author).toBe("@alice");
+    });
+  });
+  ```
+  
+  **3. Testing JSON Parsing**
+  ```typescript
+  describe("parseRedditJson", () => {
+    it("parses title and selftext from Reddit JSON", () => {
+      const data = {
+        data: {
+          children: [
+            {
+              data: {
+                id: "abc123",
+                title: "Is climate change accelerating?",
+                selftext: "I think temperatures are rising faster than expected.",
+                author: "climateWatcher",
+                url: "https://www.reddit.com/r/climate/comments/abc123",
+                created_utc: 1700000000,
+              },
+            },
+          ],
+        },
+      };
+      const posts = parseRedditJson(data, "climate change");
+      expect(posts).toHaveLength(1);
+      expect(posts[0].id).toBe("reddit_abc123");
+      expect(posts[0].author).toBe("u/climateWatcher");
+      expect(posts[0].platform).toBe("reddit");
+    });
+  });
+  ```
+  
+  **4. Testing Error Handling**
+  ```typescript
+  describe("fetchXPosts", () => {
+    it("returns error status when token is empty", async () => {
+      const result = await fetchXPosts("test", "");
+      expect(result.status).toBe("error");
+      expect(result.error).toMatch(/VITE_SCRAPE_TOKEN/);
+      expect(result.posts).toHaveLength(0);
+    });
+  });
+  ```
+</Accordion>
+
+## Testing React Components
+
+When testing React components, use Testing Library's utilities:
+
+```typescript
+import { describe, it, expect } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { Button } from "@/components/ui/button";
+
+describe("Button", () => {
+  it("renders children", () => {
+    render(<Button>Click me</Button>);
+    expect(screen.getByText("Click me")).toBeInTheDocument();
+  });
+
+  it("applies variant styles", () => {
+    render(<Button variant="destructive">Delete</Button>);
+    const button = screen.getByText("Delete");
+    expect(button).toHaveClass("bg-destructive");
+  });
+});
+```
+
+### Testing Hooks
+
+For custom hooks, use `renderHook` from Testing Library:
+
+```typescript
+import { renderHook } from "@testing-library/react";
+import { useAuth } from "@/hooks/useAuth";
+
+describe("useAuth", () => {
+  it("returns user when authenticated", () => {
+    const { result } = renderHook(() => useAuth());
+    expect(result.current.user).toBeDefined();
+  });
+});
+```
+
+## Mocking Supabase
+
+When testing components that use Supabase, mock the client:
+
+```typescript
+import { vi } from "vitest";
+
+// Mock the entire Supabase client
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: {
+    from: vi.fn(() => ({
+      select: vi.fn(() => Promise.resolve({ data: [], error: null })),
+      insert: vi.fn(() => Promise.resolve({ data: null, error: null })),
+    })),
+    auth: {
+      getSession: vi.fn(() => Promise.resolve({ data: { session: null }, error: null })),
+    },
+  },
+}));
+```
+
+## Testing Async Functions
+
+Vitest supports async tests out of the box:
+
+```typescript
+describe("fetchAllScrapeDoSources", () => {
+  it("returns error results when token is missing", async () => {
+    const { results, posts } = await fetchAllScrapeDoSources("test", "");
+    expect(results).toHaveLength(2);
+    expect(results.every((r) => r.status === "error")).toBe(true);
+    expect(posts).toHaveLength(0);
+  });
+});
+```
+
+## Test Coverage
+
+Key areas covered by existing tests:
+
+<Steps>
+  <Step title="scrapeDoProvider.ts (100% coverage)">
+    - `buildApiUrl()` - URL construction with all options
+    - `decodeEntities()` - HTML entity decoding
+    - `stripTags()` - HTML tag removal
+    - `parseXHtml()` - X.com HTML parsing with multiple strategies
+    - `parseRedditJson()` - Reddit JSON parsing with fallbacks
+    - `fetchXPosts()` - Error handling for missing token
+    - `fetchRedditPosts()` - Error handling for missing token
+    - `fetchAllScrapeDoSources()` - Parallel fetching and source filtering
+  </Step>
+
+  <Step title="Component Tests (Expand Coverage)">
+    Currently minimal component tests. Consider adding:
+    - `TopicDetail.tsx` - Data fetching and rendering
+    - `SentimentChart.tsx` - Chart rendering with mock data
+    - `AIInsightsPanel.tsx` - Streaming AI summaries
+    - `TopicSidebar.tsx` - Navigation and preferences
+  </Step>
+
+  <Step title="Hook Tests (Expand Coverage)">
+    Add tests for:
+    - `useAuth.tsx` - Authentication state management
+    - `useRealtimeData.ts` - Supabase realtime subscriptions
+    - `use-toast.ts` - Toast notification system
+  </Step>
+</Steps>
+
+## Best Practices
+
+<Accordion title="Testing Guidelines">
+  **1. Test behavior, not implementation**
+  - Focus on what the user sees and does
+  - Avoid testing internal state or methods
+  
+  **2. Use descriptive test names**
+  ```typescript
+  // Good
+  it("returns error status when token is empty", () => { ... });
+  
+  // Bad
+  it("works", () => { ... });
+  ```
+  
+  **3. Keep tests isolated**
+  - Each test should be independent
+  - Use `beforeEach` to reset state
+  - Avoid shared mutable state
+  
+  **4. Test edge cases**
+  - Empty inputs
+  - Missing data
+  - Malformed responses
+  - Boundary conditions (e.g., text length limits)
+  
+  **5. Use meaningful assertions**
+  ```typescript
+  // Good
+  expect(posts).toHaveLength(1);
+  expect(posts[0].platform).toBe("x");
+  
+  // Bad
+  expect(posts.length > 0).toBe(true);
+  ```
+  
+  **6. Mock external dependencies**
+  - Network requests (fetch, Supabase)
+  - Browser APIs (matchMedia, localStorage)
+  - Third-party libraries
+  
+  **7. Test error paths**
+  ```typescript
+  it("handles network errors gracefully", async () => {
+    vi.spyOn(global, "fetch").mockRejectedValue(new Error("Network error"));
+    const result = await fetchXPosts("test", "token");
+    expect(result.status).toBe("error");
+  });
+  ```
+</Accordion>
+
+## Debugging Tests
+
+<CodeGroup>
+  ```bash Run with --reporter=verbose
+  npx vitest --reporter=verbose
+  ```
+
+  ```bash Run single test with .only
+  it.only("should debug this test", () => {
+    // Only this test will run
+  });
+  ```
+
+  ```bash Use console.log in tests
+  it("debugs output", () => {
+    const result = parseXHtml(html, query);
+    console.log(JSON.stringify(result, null, 2));
+    expect(result).toBeDefined();
+  });
+  ```
+</CodeGroup>
+
+## Next Steps
+
+- **Expand test coverage**: Add tests for React components and hooks
+- **Run tests in CI/CD**: Integrate `npm run test` into your deployment pipeline
+- **Set up coverage thresholds**: Configure Vitest to enforce minimum coverage percentages
+- **Test edge functions**: Write integration tests for Supabase edge functions
+
+<Note>
+  Consider adding snapshot testing with Vitest for complex UI components to catch unintended visual regressions.
+</Note>

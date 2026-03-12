@@ -1,0 +1,442 @@
+---
+title: 'EmotionBreakdown'
+description: 'Horizontal bar chart displaying percentage distribution across six emotion categories'
+---
+
+## Overview
+
+EmotionBreakdown visualizes sentiment analysis results using a six-emotion model (joy, anger, sadness, fear, surprise, disgust). Each emotion is displayed as an animated horizontal bar with percentage values.
+
+## Props
+
+<ParamField path="emotions" type="EmotionData[]" required>
+  Array of emotion data objects. Each object contains:
+  
+  ```typescript
+  interface EmotionData {
+    emotion: Emotion;
+    percentage: number;
+    count: number;
+  }
+  
+  type Emotion = 'joy' | 'anger' | 'sadness' | 'fear' | 'surprise' | 'disgust';
+  ```
+</ParamField>
+
+<ParamField path="title" type="string" default="Emotion Distribution">
+  Optional panel header title. Set to empty string to hide the header.
+</ParamField>
+
+## Emotion Configuration
+
+Each emotion has a predefined color and label:
+
+```typescript
+const emotionConfig: Record<string, { color: string; label: string }> = {
+  joy:      { color: 'bg-joy',      label: 'Joy' },      // Green
+  anger:    { color: 'bg-anger',    label: 'Anger' },    // Red
+  sadness:  { color: 'bg-sadness',  label: 'Sadness' },  // Blue
+  fear:     { color: 'bg-fear',     label: 'Fear' },     // Orange
+  surprise: { color: 'bg-surprise', label: 'Surprise' }, // Purple
+  disgust:  { color: 'bg-disgust',  label: 'Disgust' },  // Brown
+};
+```
+
+**CSS Color Definitions:**
+
+```css
+.bg-joy      { background: hsl(152, 55%, 38%); } /* Green */
+.bg-anger    { background: hsl(0, 65%, 48%); }   /* Red */
+.bg-sadness  { background: hsl(210, 50%, 45%); } /* Blue */
+.bg-fear     { background: hsl(40, 70%, 50%); }  /* Orange */
+.bg-surprise { background: hsl(280, 60%, 55%); } /* Purple */
+.bg-disgust  { background: hsl(30, 45%, 40%); }  /* Brown */
+```
+
+## Usage
+
+<Tabs>
+  <Tab title="Basic">
+    ```tsx
+    import EmotionBreakdown from '@/components/EmotionBreakdown';
+    import type { EmotionData } from '@/lib/mockData';
+
+    const emotions: EmotionData[] = [
+      { emotion: 'joy', percentage: 35, count: 350 },
+      { emotion: 'anger', percentage: 28, count: 280 },
+      { emotion: 'fear', percentage: 18, count: 180 },
+      { emotion: 'surprise', percentage: 12, count: 120 },
+      { emotion: 'sadness', percentage: 5, count: 50 },
+      { emotion: 'disgust', percentage: 2, count: 20 },
+    ];
+
+    function Dashboard() {
+      return <EmotionBreakdown emotions={emotions} />;
+    }
+    ```
+  </Tab>
+  <Tab title="No Title">
+    ```tsx
+    <EmotionBreakdown 
+      emotions={emotions} 
+      title="" 
+    />
+    ```
+    Renders bars without a panel header.
+  </Tab>
+  <Tab title="Custom Title">
+    ```tsx
+    <EmotionBreakdown 
+      emotions={emotions} 
+      title="Public Sentiment Analysis" 
+    />
+    ```
+  </Tab>
+  <Tab title="Live Data">
+    ```tsx
+    import { useState, useEffect } from 'react';
+    import EmotionBreakdown from '@/components/EmotionBreakdown';
+
+    function LiveEmotions() {
+      const [emotions, setEmotions] = useState<EmotionData[]>([]);
+
+      useEffect(() => {
+        const interval = setInterval(async () => {
+          const data = await fetchLiveEmotions();
+          setEmotions(data);
+        }, 5000);
+        return () => clearInterval(interval);
+      }, []);
+
+      return (
+        <EmotionBreakdown 
+          emotions={emotions} 
+          title="Live Emotion Tracking" 
+        />
+      );
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Component Structure
+
+```tsx
+const EmotionBreakdown = ({ emotions, title = 'Emotion Distribution' }: Props) => (
+  <div className="panel p-5">
+    <h3 className="panel-header mb-4">{title}</h3>
+    <div className="space-y-3">
+      {emotions.map((e, i) => {
+        const cfg = emotionConfig[e.emotion];
+        return (
+          <div key={e.emotion} className="flex items-center gap-3">
+            {/* Emotion indicator dot */}
+            <span className={`indicator-dot ${cfg.color} shrink-0`} />
+            
+            {/* Emotion label */}
+            <span className="w-16 text-xs text-muted-foreground">{cfg.label}</span>
+            
+            {/* Animated bar */}
+            <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-secondary">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${e.percentage}%` }}
+                transition={{ delay: i * 0.06, duration: 0.5 }}
+                className={`absolute inset-y-0 left-0 rounded-full ${cfg.color}`}
+              />
+            </div>
+            
+            {/* Percentage display */}
+            <span className="w-10 text-right font-mono text-xs text-foreground">
+              {e.percentage}%
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+);
+```
+
+## Animation
+
+### Staggered Entry
+
+Each bar animates with a sequential delay:
+
+```tsx
+<motion.div
+  initial={{ width: 0 }}
+  animate={{ width: `${e.percentage}%` }}
+  transition={{ 
+    delay: i * 0.06,  // 60ms stagger per emotion
+    duration: 0.5     // 500ms animation duration
+  }}
+  className={cfg.color}
+/>
+```
+
+**Animation Sequence (6 emotions):**
+- **Joy:** 0ms delay
+- **Anger:** 60ms delay
+- **Sadness:** 120ms delay
+- **Fear:** 180ms delay
+- **Surprise:** 240ms delay
+- **Disgust:** 300ms delay
+
+**Total Animation Time:** 800ms (300ms delay + 500ms duration)
+
+### Spring Physics
+
+Framer Motion uses default spring physics:
+- **Type:** Spring
+- **Stiffness:** 100
+- **Damping:** 10
+- **Mass:** 1
+
+## Styling
+
+### Panel Layout
+
+```tsx
+<div className="panel p-5"> {/* Glass panel with padding */}
+  <h3 className="panel-header mb-4">{title}</h3>
+  <div className="space-y-3"> {/* 12px vertical spacing */}
+    {/* Emotion bars */}
+  </div>
+</div>
+```
+
+### Bar Structure
+
+```tsx
+<div className="flex items-center gap-3"> {/* 12px horizontal gap */}
+  {/* 1. Indicator dot (8x8px) */}
+  <span className={`indicator-dot ${cfg.color} shrink-0`} />
+  
+  {/* 2. Label (64px fixed width) */}
+  <span className="w-16 text-xs text-muted-foreground">{cfg.label}</span>
+  
+  {/* 3. Bar track (flex-1 takes remaining space) */}
+  <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-secondary">
+    {/* Animated fill */}
+    <motion.div className={`absolute inset-y-0 left-0 rounded-full ${cfg.color}`} />
+  </div>
+  
+  {/* 4. Percentage (40px fixed width, right-aligned) */}
+  <span className="w-10 text-right font-mono text-xs text-foreground">
+    {e.percentage}%
+  </span>
+</div>
+```
+
+### Indicator Dot
+
+```css
+.indicator-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px; /* fully rounded */
+}
+```
+
+## Data Normalization
+
+EmotionBreakdown expects percentages to sum to 100. If using raw counts, normalize first:
+
+```typescript
+function normalizeEmotions(emotions: EmotionData[]): EmotionData[] {
+  const total = emotions.reduce((sum, e) => sum + e.count, 0);
+  
+  const normalized = emotions.map(e => ({
+    ...e,
+    percentage: Math.round((e.count / total) * 100)
+  }));
+  
+  // Ensure sum is exactly 100
+  const sum = normalized.reduce((s, e) => s + e.percentage, 0);
+  if (sum !== 100 && sum > 0) {
+    normalized[0].percentage += (100 - sum);
+  }
+  
+  return normalized.sort((a, b) => b.percentage - a.percentage);
+}
+```
+
+## Integration with TopicDetail
+
+```tsx
+import EmotionBreakdown from '@/components/EmotionBreakdown';
+import type { TopicCard } from '@/lib/mockData';
+
+function TopicAnalysis({ topic }: { topic: TopicCard }) {
+  const [liveEmotions, setLiveEmotions] = useState<EmotionData[] | null>(null);
+  
+  // Use live emotions if available, else fall back to topic.emotions
+  const displayEmotions = liveEmotions || topic.emotions;
+  
+  return (
+    <div className="panel p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h4 className="panel-header text-sm">Emotional Breakdown</h4>
+        {liveEmotions && (
+          <span className="text-[9px] bg-primary/10 text-primary px-2 py-0.5 rounded">
+            📊 Live — {emotionCount} texts analyzed
+          </span>
+        )}
+      </div>
+      <EmotionBreakdown emotions={displayEmotions} title="" />
+    </div>
+  );
+}
+```
+
+## Accessibility
+
+```tsx
+<div 
+  role="list" 
+  aria-label="Emotion distribution percentages"
+  className="space-y-3"
+>
+  {emotions.map((e) => (
+    <div 
+      key={e.emotion}
+      role="listitem"
+      aria-label={`${emotionConfig[e.emotion].label}: ${e.percentage} percent`}
+      className="flex items-center gap-3"
+    >
+      {/* Bar content */}
+    </div>
+  ))}
+</div>
+```
+
+## Responsive Behavior
+
+- **Label Width:** Fixed at 64px (w-16) to ensure consistent alignment
+- **Percentage Width:** Fixed at 40px (w-10) for right-aligned numbers
+- **Bar Track:** `flex-1` takes all remaining horizontal space
+- **Vertical Spacing:** 12px gap (`space-y-3`) prevents crowding
+
+## Edge Cases
+
+<Tabs>
+  <Tab title="Empty Array">
+    ```tsx
+    <EmotionBreakdown emotions={[]} />
+    ```
+    Renders panel with title but no bars.
+  </Tab>
+  <Tab title="Single Emotion">
+    ```tsx
+    <EmotionBreakdown 
+      emotions={[{ emotion: 'joy', percentage: 100, count: 500 }]} 
+    />
+    ```
+    Renders one full-width bar.
+  </Tab>
+  <Tab title="Zero Percentages">
+    ```tsx
+    <EmotionBreakdown 
+      emotions={[
+        { emotion: 'joy', percentage: 0, count: 0 },
+        { emotion: 'anger', percentage: 0, count: 0 },
+      ]} 
+    />
+    ```
+    Bars animate but remain at 0% width.
+  </Tab>
+  <Tab title="Unsorted Data">
+    Data is rendered in array order. Sort by percentage for best UX:
+    ```typescript
+    const sorted = emotions.sort((a, b) => b.percentage - a.percentage);
+    <EmotionBreakdown emotions={sorted} />
+    ```
+  </Tab>
+</Tabs>
+
+## Performance Optimization
+
+### Key Prop
+
+```tsx
+{emotions.map((e, i) => (
+  <div key={e.emotion}> {/* Stable key prevents re-animation */}
+```
+
+<Note>
+  Use `e.emotion` as key instead of array index to preserve animation state when data reorders.
+</Note>
+
+### Animation Triggers
+
+Framer Motion only re-animates when the component **unmounts and remounts**. To force re-animation on data change:
+
+```tsx
+<EmotionBreakdown 
+  key={updateTimestamp} // Forces remount
+  emotions={emotions} 
+/>
+```
+
+## Customization
+
+### Change Animation Timing
+
+```tsx
+transition={{ 
+  delay: i * 0.1,    // Slower stagger (100ms)
+  duration: 0.8,     // Longer animation (800ms)
+  ease: 'easeOut'    // Custom easing
+}}
+```
+
+### Custom Colors
+
+```typescript
+const emotionConfig = {
+  joy: { color: 'bg-emerald-500', label: 'Happiness' },
+  anger: { color: 'bg-rose-600', label: 'Frustration' },
+  // ...
+};
+```
+
+### Add Count Display
+
+```tsx
+<span className="w-16 text-right font-mono text-xs text-foreground">
+  {e.percentage}% <span className="text-[10px] text-muted-foreground">({e.count})</span>
+</span>
+```
+
+### Vertical Layout
+
+```tsx
+<div className="grid grid-cols-3 gap-4">
+  {emotions.map((e) => (
+    <div key={e.emotion} className="flex flex-col items-center">
+      <div className="w-4 h-32 bg-secondary rounded-full overflow-hidden relative">
+        <motion.div 
+          className={`absolute bottom-0 inset-x-0 ${cfg.color}`}
+          initial={{ height: 0 }}
+          animate={{ height: `${e.percentage}%` }}
+        />
+      </div>
+      <span className="mt-2 text-xs">{cfg.label}</span>
+      <span className="text-xs font-mono">{e.percentage}%</span>
+    </div>
+  ))}
+</div>
+```
+
+## Related Components
+
+<CardGroup cols={2}>
+  <Card title="SentimentGauge" icon="gauge" href="/components/sentiment-gauge">
+    Overall sentiment polarity
+  </Card>
+  <Card title="TopicDetail" icon="chart-mixed" href="/components/topic-detail">
+    Full analytics panel
+  </Card>
+</CardGroup>

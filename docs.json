@@ -1,122 +1,142 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "SENTi-radar",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#0c044c",
+    "light": "#fcdc4c",
+    "dark": "#fce274"
   },
-  "favicon": "/favicon.svg",
+  "logo": {
+    "light": "https://media.brand.dev/03ecb238-3ad7-438b-a6e5-10086f22db5a.svg",
+    "dark": "https://media.brand.dev/03ecb238-3ad7-438b-a6e5-10086f22db5a.svg"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/Yashviit886/SENTi-radar"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/Yashviit886/SENTi-radar"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "architecture"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Setup & Configuration",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "setup/environment-variables",
+              "setup/supabase-setup",
+              "setup/scrape-do-integration",
+              "setup/api-keys"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Core Features",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "features/sentiment-analysis",
+              "features/emotion-classification",
+              "features/crisis-detection",
+              "features/ai-insights",
+              "features/scheduled-monitoring",
+              "features/data-export"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Data Sources",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "sources/overview",
+              "sources/twitter-x",
+              "sources/reddit",
+              "sources/youtube",
+              "sources/google-news"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/analyzing-topics",
+              "guides/understanding-metrics",
+              "guides/exporting-data",
+              "guides/adding-data-sources"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "Development",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Development Guide",
             "pages": [
-              "api-reference/introduction"
+              "development/getting-started",
+              "development/project-structure",
+              "development/testing"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Components",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "components/overview",
+              "components/topic-detail",
+              "components/sentiment-gauge",
+              "components/emotion-breakdown"
+            ]
+          },
+          {
+            "group": "Services",
+            "pages": [
+              "services/scrape-do-provider",
+              "services/sentiment-engine"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Edge Functions",
+        "groups": [
+          {
+            "group": "API Reference",
+            "pages": [
+              "edge-functions/overview",
+              "edge-functions/analyze-topic",
+              "edge-functions/fetch-twitter",
+              "edge-functions/fetch-reddit",
+              "edge-functions/fetch-youtube",
+              "edge-functions/analyze-sentiment",
+              "edge-functions/generate-insights",
+              "edge-functions/scheduled-monitor"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Deployment",
+        "groups": [
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/overview",
+              "deployment/frontend",
+              "deployment/edge-functions",
+              "deployment/environment-secrets"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

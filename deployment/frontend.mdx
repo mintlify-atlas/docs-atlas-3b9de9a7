@@ -1,0 +1,428 @@
+---
+title: Frontend Deployment
+description: Deploy the SENTi-radar React frontend to production
+---
+
+The SENTi-radar frontend is a Vite-powered React application that can be deployed to any static hosting platform. This guide covers building and deploying the production bundle.
+
+## Build Configuration
+
+The project uses Vite with React and TypeScript:
+
+```typescript vite.config.ts
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react-swc";
+import path from "path";
+
+export default defineConfig(({ mode }) => ({
+  server: {
+    host: "::",
+    port: 8080,
+  },
+  plugins: [react()],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+    dedupe: ["react", "react-dom", "react/jsx-runtime", "framer-motion"],
+  },
+}));
+```
+
+## Build Commands
+
+The project includes two build modes:
+
+<CodeGroup>
+```bash Production Build
+npm run build
+```
+
+```bash Development Build
+npm run build:dev
+```
+</CodeGroup>
+
+From `package.json`:
+
+```json package.json
+{
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:dev": "vite build --mode development",
+    "preview": "vite preview"
+  }
+}
+```
+
+<Note>
+  The production build optimizes assets, minifies code, and tree-shakes unused dependencies. The output is written to the `dist/` directory.
+</Note>
+
+## Environment Variables
+
+Create a `.env.production` file with your production environment variables:
+
+```bash .env.production
+# Supabase Configuration
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your-supabase-anon-key
+
+# Scrape.do (X/Twitter & Reddit)
+VITE_SCRAPE_TOKEN=your-scrape-do-token
+
+# YouTube Data API v3 (optional)
+VITE_YOUTUBE_API_KEY=your-youtube-api-key
+
+# AI Services (optional)
+VITE_GEMINI_API_KEY=your-gemini-api-key
+VITE_GROQ_API_KEY=your-groq-api-key
+```
+
+<Warning>
+  All frontend environment variables **must** be prefixed with `VITE_` to be accessible in the browser. Never expose secret keys (like service role keys) in frontend env vars.
+</Warning>
+
+## Platform-Specific Deployment
+
+### Lovable (Recommended)
+
+Lovable provides zero-config deployment:
+
+<Steps>
+  <Step title="Push to Lovable">
+    ```bash
+    git push lovable main
+    ```
+  </Step>
+  
+  <Step title="Configure environment variables">
+    Set production env vars in the Lovable dashboard under Project Settings → Environment Variables
+  </Step>
+  
+  <Step title="Deploy">
+    Lovable automatically builds and deploys on push
+  </Step>
+</Steps>
+
+### Vercel
+
+<Steps>
+  <Step title="Install Vercel CLI">
+    ```bash
+    npm install -g vercel
+    ```
+  </Step>
+  
+  <Step title="Build the project">
+    ```bash
+    npm run build
+    ```
+  </Step>
+  
+  <Step title="Deploy to Vercel">
+    ```bash
+    vercel --prod
+    ```
+  </Step>
+  
+  <Step title="Configure environment variables">
+    Add production env vars in Vercel dashboard:
+    - Project Settings → Environment Variables
+    - Add each `VITE_*` variable
+    - Redeploy to apply changes
+  </Step>
+</Steps>
+
+**Vercel Configuration** (`vercel.json`):
+
+```json vercel.json
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "framework": "vite"
+}
+```
+
+### Netlify
+
+<Steps>
+  <Step title="Install Netlify CLI">
+    ```bash
+    npm install -g netlify-cli
+    ```
+  </Step>
+  
+  <Step title="Build the project">
+    ```bash
+    npm run build
+    ```
+  </Step>
+  
+  <Step title="Deploy to Netlify">
+    ```bash
+    netlify deploy --prod --dir=dist
+    ```
+  </Step>
+</Steps>
+
+**Netlify Configuration** (`netlify.toml`):
+
+```toml netlify.toml
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+```
+
+<Note>
+  The redirect rule ensures React Router works correctly with client-side routing.
+</Note>
+
+### Cloudflare Pages
+
+<Steps>
+  <Step title="Build the project">
+    ```bash
+    npm run build
+    ```
+  </Step>
+  
+  <Step title="Install Wrangler CLI">
+    ```bash
+    npm install -g wrangler
+    ```
+  </Step>
+  
+  <Step title="Deploy to Cloudflare Pages">
+    ```bash
+    wrangler pages deploy dist --project-name=senti-radar
+    ```
+  </Step>
+</Steps>
+
+**Build Settings:**
+- Build command: `npm run build`
+- Build output directory: `dist`
+- Root directory: `/`
+
+### AWS S3 + CloudFront
+
+<Steps>
+  <Step title="Build the project">
+    ```bash
+    npm run build
+    ```
+  </Step>
+  
+  <Step title="Create S3 bucket">
+    ```bash
+    aws s3 mb s3://senti-radar-production
+    ```
+  </Step>
+  
+  <Step title="Upload build files">
+    ```bash
+    aws s3 sync dist/ s3://senti-radar-production --delete
+    ```
+  </Step>
+  
+  <Step title="Configure bucket for static hosting">
+    ```bash
+    aws s3 website s3://senti-radar-production \
+      --index-document index.html \
+      --error-document index.html
+    ```
+  </Step>
+  
+  <Step title="Create CloudFront distribution">
+    Point CloudFront to your S3 bucket origin and configure caching rules
+  </Step>
+</Steps>
+
+## Custom Domain Setup
+
+After deploying, configure your custom domain:
+
+<Accordion title="Vercel">
+  1. Go to Project Settings → Domains
+  2. Add your custom domain
+  3. Configure DNS records as shown
+  4. Wait for SSL certificate provisioning
+</Accordion>
+
+<Accordion title="Netlify">
+  1. Go to Site Settings → Domain Management
+  2. Add custom domain
+  3. Update DNS records to Netlify nameservers
+  4. Enable HTTPS (automatic with Let's Encrypt)
+</Accordion>
+
+<Accordion title="Cloudflare Pages">
+  1. Go to Custom Domains
+  2. Add your domain
+  3. Update DNS records (automatic if using Cloudflare DNS)
+  4. SSL is automatic
+</Accordion>
+
+## Testing the Deployment
+
+After deployment, verify:
+
+<Steps>
+  <Step title="Check environment variables">
+    Open browser DevTools → Console and run:
+    ```javascript
+    console.log(import.meta.env.VITE_SUPABASE_URL)
+    ```
+    Should output your Supabase URL (not `undefined`)
+  </Step>
+  
+  <Step title="Test Supabase connection">
+    Navigate to any page that fetches data. Check Network tab for successful API calls to Supabase
+  </Step>
+  
+  <Step title="Verify edge functions">
+    Create a test topic and confirm data is fetched from X/Reddit via edge functions
+  </Step>
+  
+  <Step title="Check error handling">
+    Open browser console and verify no critical errors
+  </Step>
+</Steps>
+
+## Performance Optimization
+
+### Asset Optimization
+
+Vite automatically:
+- Minifies JavaScript and CSS
+- Tree-shakes unused code
+- Code-splits routes with dynamic imports
+- Optimizes images and fonts
+
+### CDN Caching
+
+Configure cache headers for static assets:
+
+```javascript vite.config.ts
+export default defineConfig({
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'ui-vendor': ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu'],
+          'chart-vendor': ['recharts'],
+        },
+      },
+    },
+  },
+});
+```
+
+### Bundle Analysis
+
+Analyze bundle size:
+
+```bash
+npm install -D rollup-plugin-visualizer
+```
+
+Then run:
+
+```bash
+npm run build
+```
+
+View the generated `stats.html` to identify large dependencies.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Blank page after deployment">
+    **Cause**: Incorrect base path or missing environment variables
+    
+    **Solution**:
+    1. Check browser console for errors
+    2. Verify all `VITE_*` env vars are set
+    3. Ensure `index.html` is in the root of `dist/`
+  </Accordion>
+  
+  <Accordion title="404 on page refresh">
+    **Cause**: Server not configured for SPA routing
+    
+    **Solution**: Add redirect rule to serve `index.html` for all routes (see platform-specific configs above)
+  </Accordion>
+  
+  <Accordion title="Environment variables undefined">
+    **Cause**: Variables not prefixed with `VITE_` or not set during build
+    
+    **Solution**: 
+    1. Ensure all vars start with `VITE_`
+    2. Rebuild after adding env vars
+    3. Clear build cache: `rm -rf dist node_modules/.vite`
+  </Accordion>
+  
+  <Accordion title="CORS errors">
+    **Cause**: Supabase edge functions not allowing your domain
+    
+    **Solution**: Check `supabase/config.toml` and ensure CORS headers include your production domain
+  </Accordion>
+</AccordionGroup>
+
+## CI/CD Pipeline
+
+Example GitHub Actions workflow:
+
+```yaml .github/workflows/deploy.yml
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_SCRAPE_TOKEN: ${{ secrets.VITE_SCRAPE_TOKEN }}
+      
+      - name: Deploy to Vercel
+        run: vercel --prod --token=${{ secrets.VERCEL_TOKEN }}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Deploy Edge Functions" icon="code" href="/deployment/edge-functions">
+    Deploy backend edge functions to Supabase
+  </Card>
+  
+  <Card title="Configure Secrets" icon="key" href="/deployment/environment-secrets">
+    Set up production API keys and secrets
+  </Card>
+</CardGroup>

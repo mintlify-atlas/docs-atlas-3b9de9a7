@@ -1,0 +1,309 @@
+---
+title: Emotion Classification
+description: Detect and analyze six core emotions in public discussions using keyword-based emotion scoring
+---
+
+## Overview
+
+SENTi-radar classifies every analyzed text into one of six core emotions: **Joy**, **Anger**, **Sadness**, **Fear**, **Surprise**, and **Disgust**. This goes beyond simple positive/negative sentiment to reveal the emotional drivers behind public reactions.
+
+## The Six Emotions
+
+<CardGroup cols={3}>
+  <Card title="Joy" icon="smile" color="#2d7a4f">
+    Happiness, excitement, celebration, optimism, and positive breakthroughs
+  </Card>
+  
+  <Card title="Anger" icon="flame" color="#c53030">
+    Outrage, frustration, condemnation, and demands for action
+  </Card>
+  
+  <Card title="Sadness" icon="cloud-drizzle" color="#4a5568">
+    Disappointment, grief, despair, and expressions of loss
+  </Card>
+  
+  <Card title="Fear" icon="alert-triangle" color="#d69e2e">
+    Worry, anxiety, threats, risks, and uncertainty
+  </Card>
+  
+  <Card title="Surprise" icon="zap" color="#805ad5">
+    Shock, unexpected revelations, and unbelievable moments
+  </Card>
+  
+  <Card title="Disgust" icon="x-circle" color="#718096">
+    Revulsion, moral outrage, and strong disapproval
+  </Card>
+</CardGroup>
+
+## How Emotion Classification Works
+
+<Steps>
+  <Step title="Text Collection">
+    Gather all text data from social media posts, comments, news headlines, and video descriptions.
+  </Step>
+  
+  <Step title="Keyword Matching">
+    Scan text against a curated lexicon of emotion keywords. Each emotion has 20-30 associated words and phrases.
+  </Step>
+  
+  <Step title="Score Calculation">
+    Count keyword matches for each emotion and calculate percentage distribution across all six emotions.
+  </Step>
+  
+  <Step title="Normalization">
+    Ensure percentages sum to exactly 100% and rank emotions by dominance.
+  </Step>
+</Steps>
+
+## Emotion Keyword Lexicon
+
+The classification engine uses a comprehensive keyword dictionary:
+
+```typescript
+// Source: TopicDetail.tsx (lines 35-42)
+const EMOTION_KEYWORDS: Record<string, string[]> = {
+  fear: [
+    'fear', 'scared', 'worried', 'panic', 'threat', 'risk', 
+    'dangerous', 'crisis', 'collapse', 'shortage', 'anxiety', 
+    'alarm', 'uncertainty', 'instability', 'catastroph', 'turmoil'
+  ],
+  anger: [
+    'anger', 'angry', 'outrage', 'furious', 'rage', 'frustrat', 
+    'unacceptable', 'scandal', 'corrupt', 'condemn', 'protest', 
+    'exploit', 'injustice', 'blame', 'backlash', 'fury'
+  ],
+  sadness: [
+    'sad', 'disappoint', 'tragic', 'loss', 'suffer', 'grief', 
+    'regret', 'devastat', 'despair', 'victim', 'casualt', 'death', 
+    'pain', 'mourn', 'unfortunate', 'heartbreak', 'sorrow'
+  ],
+  joy: [
+    'happy', 'excited', 'great', 'amazing', 'love', 'excellent', 
+    'fantastic', 'celebrate', 'breakthrough', 'success', 
+    'innovation', 'optimis', 'hopeful', 'wonderful', 'proud'
+  ],
+  surprise: [
+    'shocking', 'unexpected', 'unbelievable', 'stunning', 
+    'incredible', 'reveal', 'bombshell', 'breaking', 
+    'unprecedented', 'wtf', 'omg', 'cant believe'
+  ],
+  disgust: [
+    'disgust', 'appalling', 'horrible', 'corrupt', 'toxic', 
+    'vile', 'sickening', 'revolting', 'gross', 'nauseating', 
+    'shameful', 'pathetic'
+  ]
+};
+```
+
+<Note>
+Keywords use partial matching (e.g., "frustrat" matches "frustrate", "frustrated", "frustrating") to capture variations.
+</Note>
+
+## Scoring Algorithm
+
+The emotion scoring process:
+
+```typescript
+// Source: TopicDetail.tsx (lines 146-167)
+function scoreEmotions(texts: string[]): EmotionData[] {
+  const allText = texts.join(' ').toLowerCase();
+  const scores: Record<string, number> = {};
+  
+  // Count keyword matches for each emotion
+  for (const [emotion, words] of Object.entries(EMOTION_KEYWORDS)) {
+    scores[emotion] = words.reduce((sum, w) => {
+      const re = new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+      return sum + (allText.match(re)?.length || 0);
+    }, 0);
+  }
+  
+  // Calculate percentages
+  const total = Object.values(scores).reduce((a, b) => a + b, 0) || 1;
+  const emotions: EmotionData[] = Object.entries(scores)
+    .map(([emotion, score]) => ({
+      emotion,
+      percentage: Math.round((score / total) * 100),
+      count: score,
+    }))
+    .sort((a, b) => b.percentage - a.percentage);
+  
+  // Normalize to exactly 100%
+  const sum = emotions.reduce((s, e) => s + e.percentage, 0);
+  if (sum !== 100 && sum > 0) emotions[0].percentage += (100 - sum);
+  
+  return emotions;
+}
+```
+
+## Emotion Breakdown Panel
+
+The Emotion Breakdown component visualizes the distribution:
+
+<Tabs>
+  <Tab title="Visual Display">
+    Each emotion appears as:
+    - **Color-coded indicator dot**
+    - **Emotion label** (Joy, Anger, etc.)
+    - **Animated progress bar** (fills from 0 to percentage over 0.5s)
+    - **Percentage value** in monospace font
+    
+    Emotions are sorted from highest to lowest percentage.
+  </Tab>
+  
+  <Tab title="Real-Time Updates">
+    When you select a topic, the emotion breakdown updates in two phases:
+    
+    1. **Instant display**: Shows mock emotions while fetching live data
+    2. **Live update**: Replaces with analyzed emotions from real social media posts
+    
+    A badge shows the data source: "📊 Live — 127 texts"
+  </Tab>
+  
+  <Tab title="Color Coding">
+    ```css
+    joy:      #2d7a4f (green)
+    anger:    #c53030 (red)
+    sadness:  #6b7280 (gray)
+    fear:     #d69e2e (yellow/orange)
+    surprise: #805ad5 (purple)
+    disgust:  #718096 (dark gray)
+    ```
+  </Tab>
+</Tabs>
+
+## Dominant Emotion Card
+
+The dashboard displays the dominant (highest percentage) emotion prominently:
+
+```tsx
+// Source: TopicDetail.tsx (lines 757-764)
+const topEmotion = [...displayEmotions]
+  .sort((a, b) => b.percentage - a.percentage)[0];
+
+<div className="text-4xl font-bold capitalize">
+  {topEmotion?.emotion}
+</div>
+<div className="text-xl font-mono mt-1">
+  ({topEmotion?.percentage}%)
+</div>
+```
+
+<Info>
+The dominant emotion card includes a data source badge (e.g., "X · Reddit · YouTube") when using live data.
+</Info>
+
+## Interpreting Emotion Data
+
+### High-Emotion Scenarios
+
+<CardGroup cols={2}>
+  <Card title="Joy + Surprise (60%+)" icon="sparkles">
+    **Product launches, breakthroughs, positive announcements**
+    
+    Example: "45% joy, 25% surprise → Praise: holographic display (62%), battery life (24%)"
+  </Card>
+  
+  <Card title="Anger + Fear (60%+)" icon="alert-triangle">
+    **Crises, controversies, policy backlash**
+    
+    Example: "48% anger, 22% fear → Outrage at: corporate profiteering (52%), government inaction (33%)"
+  </Card>
+  
+  <Card title="Sadness + Disgust (50%+)" icon="cloud-rain">
+    **Scandals, tragedies, moral failures**
+    
+    Example: "42% anger, 25% sadness → Key frustrations: broken promises (55%), insufficient targets (30%)"
+  </Card>
+  
+  <Card title="Balanced Distribution" icon="scale">
+    **Complex, multi-faceted issues with divided opinions**
+    
+    Example: "35% fear, 28% anger, 18% surprise → Mixed reactions across stakeholder groups"
+  </Card>
+</CardGroup>
+
+### Emotion Shifts Over Time
+
+Monitor how emotions evolve by comparing snapshots:
+
+- **Fear → Anger**: Issue escalation (inaction fueling frustration)
+- **Surprise → Joy**: Positive reception after initial shock
+- **Anger → Sadness**: Resignation setting in after prolonged controversy
+
+## Use Cases
+
+### Brand Crisis Management
+
+```typescript
+// Example: Tracking iPhone launch emotions
+{
+  joy: 45%,        // "take my money", "holographic display"
+  surprise: 25%,   // "this changes everything"
+  anger: 15%,      // "too expensive", "no USB-C"
+  sadness: 8%,     // price disappointment
+  fear: 5%,
+  disgust: 2%
+}
+```
+
+**Insight**: While overwhelmingly positive, the 15% anger around pricing (especially "no USB-C" memes) needs addressing in marketing.
+
+### Policy Response Tracking
+
+```typescript
+// Example: Climate Summit emotions
+{
+  anger: 42%,      // "broken promises", "greenwashing"
+  sadness: 25%,    // "too little too late"
+  fear: 18%,       // island nations, future concerns
+  disgust: 10%,    // corporate hypocrisy
+  surprise: 3%,
+  joy: 2%
+}
+```
+
+**Insight**: Dominant anger + sadness signals deep public frustration. Requires transparent action, not more rhetoric.
+
+## Advanced: Theme-Aware Context
+
+The system detects topic themes (geopolitical, tech, health, etc.) and uses theme-specific interpretation:
+
+```typescript
+// Source: TopicDetail.tsx (lines 44-116)
+const TOPIC_THEMES: Record<string, { keywords: string[]; templates: string[] }> = {
+  geopolitical: {
+    keywords: ['war', 'tension', 'iran', 'ukraine', 'missile', 'sanction'],
+    templates: [
+      'Escalation fears are driving market volatility and public anxiety',
+      'Diplomatic channels remain under pressure',
+      'Defense and security discussions dominate'
+    ]
+  },
+  tech: {
+    keywords: ['phone', 'launch', 'ai', 'chip', 'samsung', 'apple'],
+    templates: [
+      'Early adopters are buzzing — design, specs, and pricing are most discussed',
+      'Comparisons with competitors are driving heated debates'
+    ]
+  }
+  // ... 5 more themes
+};
+```
+
+<Note>
+Theme detection enhances AI-generated summaries by providing domain-specific context.
+</Note>
+
+## Data Quality Indicators
+
+The emotion panel shows data quality metrics:
+
+- **Text count**: "127 texts analyzed"
+- **Data sources**: "Live from X · Reddit · YouTube · News"
+- **Refresh status**: Spinner during analysis, checkmark when complete
+
+## Related Features
+
+- [Sentiment Analysis](/features/sentiment-analysis) - Overall positive/negative scoring
+- [Crisis Detection](/features/crisis-detection) - Emotion-based crisis triggers
+- [AI Insights](/features/ai-insights) - Strategic recommendations based on emotion patterns

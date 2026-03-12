@@ -1,0 +1,512 @@
+---
+title: generate-insights
+description: Generates AI-powered strategic recommendations and analysis reports using Gemini 2.0 Flash with web search integration
+---
+
+## Overview
+
+The `generate-insights` function creates professional PR and communications strategy reports based on sentiment data. It uses **Gemini 2.0 Flash** with function calling to optionally search the web for real-time context via Parallel AI.
+
+Supports two modes:
+- **Report Generation**: Creates full strategic analysis with recommendations
+- **Chat Mode**: Answers specific questions about sentiment data
+
+## Endpoint
+
+```
+POST https://your-project.supabase.co/functions/v1/generate-insights
+```
+
+<Note>
+This is a **client-facing** function that can be called directly from applications, typically after sentiment analysis is complete.
+</Note>
+
+## Request
+
+### Report Generation Mode
+
+<ParamField body="topic" type="object" required>
+  Topic metadata object
+  <Expandable title="properties">
+    <ParamField body="title" type="string">
+      Display name of the topic (e.g., "iPhone 16 Launch")
+    </ParamField>
+    <ParamField body="hashtag" type="string">
+      Associated hashtag (e.g., "#iPhone16")
+    </ParamField>
+    <ParamField body="change" type="number">
+      Volume change percentage (e.g., 12 for +12%)
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="emotions" type="array" required>
+  Emotion breakdown from `topic_stats`
+  <Expandable title="item properties">
+    <ParamField body="emotion" type="string">
+      Emotion name ("joy" | "anger" | "sadness" | "fear" | "surprise" | "disgust")
+    </ParamField>
+    <ParamField body="percentage" type="number">
+      Percentage of posts with this emotion (0-100)
+    </ParamField>
+    <ParamField body="count" type="number">
+      Raw count of posts
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="sentiment" type="string" required>
+  Overall sentiment: "positive" | "negative" | "mixed" | "neutral"
+</ParamField>
+
+<ParamField body="crisisLevel" type="string" required>
+  Crisis assessment: "none" | "low" | "medium" | "high"
+</ParamField>
+
+### Chat Mode
+
+<ParamField body="messages" type="array">
+  Conversation history (triggers chat mode)
+  <Expandable title="item properties">
+    <ParamField body="role" type="string">
+      Message role: "user" | "assistant"
+    </ParamField>
+    <ParamField body="content" type="string">
+      Message text
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<Note>
+If `messages` array is present, the function enters **chat mode**. Otherwise, it generates a full report.
+</Note>
+
+### Example Requests
+
+<CodeGroup>
+```bash Report Generation
+curl -X POST https://your-project.supabase.co/functions/v1/generate-insights \
+  -H "Authorization: Bearer YOUR_ANON_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "topic": {
+      "title": "iPhone 16 Launch",
+      "hashtag": "#iPhone16",
+      "change": 15
+    },
+    "emotions": [
+      {"emotion": "anger", "percentage": 42, "count": 89},
+      {"emotion": "joy", "percentage": 28, "count": 59},
+      {"emotion": "surprise", "percentage": 18, "count": 38}
+    ],
+    "sentiment": "mixed",
+    "crisisLevel": "medium"
+  }'
+```
+
+```bash Chat Mode
+curl -X POST https://your-project.supabase.co/functions/v1/generate-insights \
+  -H "Authorization: Bearer YOUR_ANON_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "topic": {"title": "iPhone 16", "hashtag": "#iPhone16"},
+    "emotions": [...],
+    "sentiment": "negative",
+    "crisisLevel": "high",
+    "messages": [
+      {"role": "user", "content": "What is the main driver of negative sentiment?"}
+    ]
+  }'
+```
+
+```typescript TypeScript
+const response = await fetch(
+  `${supabaseUrl}/functions/v1/generate-insights`,
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${anonKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      topic: { title: 'Product Launch', hashtag: '#launch' },
+      emotions: emotionBreakdown,
+      sentiment: overallSentiment,
+      crisisLevel: crisisLevel
+    })
+  }
+);
+
+// Stream response
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  
+  const chunk = decoder.decode(value);
+  console.log(chunk); // Process SSE stream
+}
+```
+</CodeGroup>
+
+## Response
+
+The function returns a **Server-Sent Events (SSE) stream** for real-time typing effect:
+
+```
+Content-Type: text/event-stream
+
+data: {"choices":[{"delta":{"content":"## Situation"}}]}
+
+data: {"choices":[{"delta":{"content":" Assessment\n\n"}}]}
+
+data: {"choices":[{"delta":{"content":"The iPhone 16 launch"}}]}
+
+data: [DONE]
+```
+
+### Parsing SSE Stream
+
+<CodeGroup>
+```typescript TypeScript
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+let fullText = '';
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  
+  const lines = decoder.decode(value).split('\n');
+  for (const line of lines) {
+    if (line.startsWith('data: ')) {
+      const data = line.slice(6);
+      if (data === '[DONE]') break;
+      
+      try {
+        const parsed = JSON.parse(data);
+        const content = parsed.choices?.[0]?.delta?.content || '';
+        fullText += content;
+        console.log(content); // Render incrementally
+      } catch (e) {
+        // Skip invalid JSON
+      }
+    }
+  }
+}
+```
+
+```javascript JavaScript (EventSource)
+// Note: EventSource doesn't support POST, use fetch with ReadableStream
+const response = await fetch(url, { method: 'POST', body });
+const stream = response.body;
+
+for await (const chunk of stream) {
+  const text = new TextDecoder().decode(chunk);
+  // Process SSE chunks
+}
+```
+</CodeGroup>
+
+## Report Structure
+
+Generated reports follow this markdown structure:
+
+```markdown
+## Situation Assessment
+
+Brief overview of the current public sentiment landscape (2-3 sentences).
+
+## Key Concerns Identified
+
+- Main issue #1 driving negative sentiment
+- Main issue #2 causing frustration
+- Main issue #3 contributing to crisis level
+- Additional concern #4
+
+## Recommended Actions
+
+1. **Action verb**: Specific implementable recommendation
+2. **Action verb**: Another strategic response
+3. **Action verb**: Proactive measure to address concerns
+4. **Action verb**: Long-term reputation strategy
+5. **Action verb**: Communication plan adjustment
+
+## Opportunities
+
+- Potential opportunity #1 that could arise from this situation
+- Potential opportunity #2 to turn sentiment around
+- Potential opportunity #3 for positive messaging
+
+## Risk Factors to Monitor
+
+- Thing to watch #1 that could escalate the situation
+- Thing to watch #2 that indicates worsening sentiment
+- Thing to watch #3 for early warning signals
+```
+
+### Example Output
+
+```markdown
+## Situation Assessment
+
+The iPhone 16 launch is facing significant public backlash with 42% of social media posts expressing anger and only 28% showing positive sentiment. The medium crisis level indicates elevated negativity that requires immediate attention. Volume is up 15%, suggesting the controversy is gaining traction.
+
+## Key Concerns Identified
+
+- Battery life complaints dominating the conversation (mentioned in 35% of negative posts)
+- Perceived lack of innovation compared to iPhone 15 Pro Max
+- Price increase not justified by feature improvements
+- Software bugs in iOS 18 affecting user experience
+
+## Recommended Actions
+
+1. **Acknowledge** battery concerns publicly and commit to software optimization in upcoming updates
+2. **Highlight** the differentiated features (camera improvements, A18 chip) through targeted content campaigns
+3. **Engage** directly with frustrated users on social platforms to demonstrate responsiveness
+4. **Release** a technical deep-dive explaining the engineering trade-offs and value proposition
+5. **Monitor** sentiment daily and prepare crisis escalation plan if negativity exceeds 60%
+
+## Opportunities
+
+- Pro Max variants showing stronger positive sentiment - leverage this segment for testimonials
+- Camera quality is being praised even by critics - focus marketing on visual storytelling
+- Early adopters forming defensive communities - empower them as brand advocates
+
+## Risk Factors to Monitor
+
+- Battery complaints spreading to mainstream media coverage
+- Comparison videos with competitors going viral
+- Return rates or pre-order cancellations increasing week-over-week
+```
+
+## AI Tool: Web Search
+
+The function includes a **web search tool** powered by Parallel AI:
+
+```typescript
+const tools = [{
+  type: 'function',
+  function: {
+    name: 'parallel_web_search',
+    description: 'Search the web for real-time news and context',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'The search query'
+        }
+      },
+      required: ['query']
+    }
+  }
+}];
+```
+
+Gemini can autonomously decide to use this tool:
+
+**User**: "What's the latest news about this topic?"
+
+**Gemini** (internally): `parallel_web_search({query: "iPhone 16 latest news"})`
+
+**Parallel AI**: Returns 3 relevant web excerpts
+
+**Gemini**: "Based on recent reports, the iPhone 16 battery controversy has been covered by TechCrunch and The Verge..."
+
+## System Prompts
+
+### Report Generation Prompt
+
+```
+You are a senior PR and communications strategist. Analyze the following public sentiment data and provide balanced, actionable recommendations.
+
+Topic: iPhone 16 Launch
+Hashtag: #iPhone16
+Overall Sentiment: mixed
+Crisis Level: medium
+Emotion Breakdown: anger: 42%, joy: 28%, surprise: 18%
+Volume Change: +15%
+
+Generate a professional analysis report with the following sections:
+
+## Situation Assessment
+Brief overview of the current public sentiment landscape (2-3 sentences).
+
+## Key Concerns Identified
+- Bullet points of main issues driving sentiment (3-4 points)
+
+## Recommended Actions
+Provide 4-5 balanced, actionable recommendations. Each should:
+- Start with a clear action verb
+- Be specific and implementable
+- Consider both immediate and long-term impact
+- Not be one-sided or dismissive of public concerns
+
+## Opportunities
+- 2-3 potential opportunities that could arise from this situation
+
+## Risk Factors to Monitor
+- 2-3 things to watch that could escalate or change the situation
+
+Keep the tone professional, balanced, and constructive. Avoid corporate jargon.
+```
+
+### Chat Mode Prompt
+
+```
+You are an AI analyzing public sentiment data.
+
+Topic: iPhone 16 Launch
+Hashtag: #iPhone16
+Overall Sentiment: mixed
+Crisis Level: medium
+Top Emotions: anger: 42%, joy: 28%, surprise: 18%
+
+Answer the user's questions in an extremely concise manner. Provide ONLY the direct answer to what is exactly asked. Do not add any polishing, pleasantries, formatting flair, or extra information. Just direct, raw answers.
+```
+
+## Web Search Integration
+
+When Gemini calls `parallel_web_search`:
+
+1. **Function call detected** in Gemini response
+2. **Parallel API invoked**:
+   ```typescript
+   const searchRes = await fetch('https://api.parallel.ai/v1beta/search', {
+     method: 'POST',
+     headers: { 'x-api-key': PARALLEL_API_KEY },
+     body: JSON.stringify({
+       objective: args.query,
+       max_results: 3
+     })
+   });
+   ```
+3. **Search results returned** to Gemini as tool response
+4. **Final answer generated** incorporating web context
+
+## Error Handling
+
+### Rate Limit (429)
+
+```json
+{
+  "error": "Rate limit exceeded. Please try again in a moment."
+}
+```
+
+### API Failure (500)
+
+```json
+{
+  "error": "Failed to communicate with AI provider"
+}
+```
+
+### Malformed Request (500)
+
+```json
+{
+  "error": "Cannot read properties of undefined (reading 'title')"
+}
+```
+
+## Performance
+
+**Typical execution time**:
+
+- Report generation (no web search): ~8-12 seconds
+- Report generation (with web search): ~15-20 seconds
+- Chat response (no web search): ~3-5 seconds
+- Chat response (with web search): ~8-12 seconds
+
+**Streaming**: First tokens arrive in ~2-3 seconds
+
+## Rate Limits
+
+<Warning>
+**Gemini 2.0 Flash (via OpenAI API)**:
+- Free tier: 15 RPM (requests per minute)
+- Paid tier: 360 RPM
+
+**Parallel AI**:
+- Varies by plan (typically 100-1000 requests/day)
+
+Each function call makes **1-2 Gemini requests** (initial + optional tool response).
+</Warning>
+
+## Environment Variables
+
+<ParamField body="GEMINI_API_KEY" type="string" required>
+  Google AI API key for Gemini 2.0 Flash. Get one at https://ai.google.dev
+</ParamField>
+
+<ParamField body="PARALLEL_API_KEY" type="string">
+  Parallel AI API key for web search (optional but recommended). Get one at https://parallel.ai
+</ParamField>
+
+## Best Practices
+
+<Check>Call this function **after** `analyze-sentiment` completes</Check>
+
+<Check>Fetch emotion breakdown and sentiment from `topic_stats` table</Check>
+
+<Check>Stream the response to provide real-time typing effect in UI</Check>
+
+<Check>Use chat mode for follow-up questions instead of regenerating full reports</Check>
+
+<Check>Store generated reports in your database to avoid redundant API calls</Check>
+
+<Check>Set up Parallel AI key to enable web search for more context-aware insights</Check>
+
+## Use Cases
+
+### PR Crisis Management
+
+```typescript
+const response = await supabase.functions.invoke('generate-insights', {
+  body: {
+    topic: { title: 'Data Breach Incident', hashtag: '#SecurityBreach' },
+    emotions: [...],
+    sentiment: 'negative',
+    crisisLevel: 'high'
+  }
+});
+// Get immediate strategic recommendations for crisis response
+```
+
+### Product Launch Analysis
+
+```typescript
+const response = await supabase.functions.invoke('generate-insights', {
+  body: {
+    topic: { title: 'New Feature Launch', hashtag: '#FeatureX' },
+    emotions: [...],
+    sentiment: 'positive',
+    crisisLevel: 'none'
+  }
+});
+// Identify opportunities to amplify positive sentiment
+```
+
+### Interactive Chat Assistant
+
+```typescript
+const messages = [
+  { role: 'user', content: 'What percentage of posts mention pricing?' },
+  { role: 'assistant', content: 'Approximately 28% of analyzed posts...' },
+  { role: 'user', content: 'How does this compare to last quarter?' }
+];
+
+const response = await supabase.functions.invoke('generate-insights', {
+  body: { topic, emotions, sentiment, crisisLevel, messages }
+});
+// Gemini automatically calls web search to find historical data
+```
+
+## Related Functions
+
+- [analyze-sentiment](/edge-functions/analyze-sentiment) - Provides the emotion/sentiment data consumed by this function
+- [analyze-topic](/edge-functions/analyze-topic) - Full pipeline from data collection to insights

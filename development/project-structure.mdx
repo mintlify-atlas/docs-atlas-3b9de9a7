@@ -1,0 +1,330 @@
+---
+title: 'Project Structure'
+description: 'Understanding the SENTi-radar codebase organization and key files'
+---
+
+## Overview
+
+SENTi-radar follows a standard Vite + React project structure with clear separation between UI components, business logic, and backend functions.
+
+```
+senti-radar/
+├── src/                    # Frontend application code
+├── supabase/              # Backend edge functions & migrations
+├── public/                # Static assets
+└── config files           # Build and tooling configuration
+```
+
+## Frontend Structure (`src/`)
+
+The `src/` directory contains all React application code:
+
+```
+src/
+├── components/            # React components
+│   ├── ui/               # shadcn-ui components (Radix UI wrappers)
+│   ├── TopicDetail.tsx   # Main topic analysis view
+│   ├── TopicSidebar.tsx  # Topic navigation sidebar
+│   ├── AIInsightsPanel.tsx  # AI summary panel
+│   ├── SentimentChart.tsx   # Recharts visualization
+│   └── ...
+├── pages/                 # Route pages
+│   ├── Index.tsx         # Dashboard homepage
+│   ├── Auth.tsx          # Authentication page
+│   ├── Profile.tsx       # User profile
+│   └── ...
+├── hooks/                 # Custom React hooks
+│   ├── useAuth.tsx       # Authentication logic
+│   ├── useRealtimeData.ts  # Supabase realtime subscriptions
+│   └── use-toast.ts      # Toast notifications
+├── services/              # Business logic & API clients
+│   ├── scrapeDoProvider.ts    # Scrape.do integration
+│   └── scrapeProvider.ts      # Legacy scraping service
+├── integrations/          # Third-party integrations
+│   ├── supabase/         # Supabase client & types
+│   └── lovable/          # Lovable.dev utilities
+├── lib/                   # Utilities and helpers
+│   ├── utils.ts          # General utilities (cn, etc.)
+│   ├── mockData.ts       # Mock data for testing
+│   └── exportUtils.ts    # CSV/PDF export logic
+├── test/                  # Test files
+│   ├── setup.ts          # Vitest global setup
+│   ├── example.test.ts   # Example test
+│   └── scrapeDoProvider.test.ts  # Service tests
+├── main.tsx               # React entry point
+├── App.tsx                # Root component with routing
+└── index.css              # Global styles (Tailwind imports)
+```
+
+<Accordion title="Key Frontend Files">
+  **`main.tsx`** - Application entry point that renders the React app
+  
+  **`components/TopicDetail.tsx`** - Core component (52KB) handling topic analysis, data fetching, and sentiment display
+  
+  **`services/scrapeDoProvider.ts`** - Universal scraping provider with functions:
+  - `fetchXPosts()` - X/Twitter search via Scrape.do
+  - `fetchRedditPosts()` - Reddit JSON API via Scrape.do
+  - `fetchAllScrapeDoSources()` - Parallel fetch and merge
+  
+  **`hooks/useRealtimeData.ts`** - Subscribes to Supabase realtime updates for live sentiment data
+  
+  **`lib/exportUtils.ts`** - Exports sentiment data to CSV and PDF formats using jsPDF
+</Accordion>
+
+## Backend Structure (`supabase/`)
+
+Supabase edge functions (Deno runtime) and database migrations:
+
+```
+supabase/
+├── functions/             # Edge functions (Deno/TypeScript)
+│   ├── fetch-twitter/    # Scrapes X via Scrape.do → Parallel.ai fallback
+│   ├── fetch-reddit/     # Scrapes Reddit discussions
+│   ├── fetch-youtube/    # Fetches YouTube comments via API
+│   ├── analyze-sentiment/  # AI sentiment analysis (Gemini)
+│   ├── analyze-topic/    # Topic classification and trending detection
+│   ├── generate-insights/  # AI-powered insight generation
+│   └── scheduled-monitor/  # Cron job for periodic analysis
+├── migrations/           # SQL schema migrations
+│   ├── FULL_MIGRATION_RUN_IN_DASHBOARD.sql
+│   ├── 20260310000000_user_topic_preferences.sql
+│   └── ...
+└── config.toml           # Supabase local config
+```
+
+<Note>
+  Edge functions run on Deno (not Node.js) and have access to Supabase service role credentials via environment secrets.
+</Note>
+
+### Edge Function Architecture
+
+Each function follows this priority fallback chain for data fetching:
+
+```
+Scrape.do → Parallel.ai → YouTube API → Algorithmic (keyword-based)
+```
+
+**Example: `fetch-twitter/index.ts`**
+1. Attempts Scrape.do with `render=true` for JavaScript-heavy X.com
+2. Falls back to Parallel.ai social search API
+3. Falls back to YouTube comments if topic is video-related
+4. Uses local keyword-based emotion detection as guaranteed fallback
+
+## Configuration Files
+
+### Build & Tooling
+
+<CodeGroup>
+  ```typescript vite.config.ts
+  import { defineConfig } from "vite";
+  import react from "@vitejs/plugin-react-swc";
+  import path from "path";
+  
+  export default defineConfig(({ mode }) => ({
+    server: {
+      host: "::",
+      port: 8080,
+      hmr: { overlay: false },
+    },
+    plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "./src"),
+      },
+      dedupe: ["react", "react-dom", "react/jsx-runtime", "framer-motion"],
+    },
+  }));
+  ```
+
+  ```typescript vitest.config.ts
+  import { defineConfig } from "vitest/config";
+  import react from "@vitejs/plugin-react-swc";
+  import path from "path";
+  
+  export default defineConfig({
+    plugins: [react()],
+    test: {
+      environment: "jsdom",
+      globals: true,
+      setupFiles: ["./src/test/setup.ts"],
+      include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    },
+    resolve: {
+      alias: { "@": path.resolve(__dirname, "./src") },
+    },
+  });
+  ```
+
+  ```json tsconfig.json
+  {
+    "compilerOptions": {
+      "allowJs": true,
+      "noImplicitAny": false,
+      "noUnusedLocals": false,
+      "noUnusedParameters": false,
+      "paths": {
+        "@/*": ["./src/*"]
+      },
+      "skipLibCheck": true,
+      "strictNullChecks": false
+    },
+    "references": [
+      { "path": "./tsconfig.app.json" },
+      { "path": "./tsconfig.node.json" }
+    ]
+  }
+  ```
+
+  ```javascript tailwind.config.ts
+  // Configured for shadcn-ui theming
+  // Includes @tailwindcss/typography plugin
+  // Custom CSS variables for dark mode support
+  ```
+</CodeGroup>
+
+### Environment Variables
+
+The project uses **two separate sets** of environment variables:
+
+<Steps>
+  <Step title="Frontend Variables (.env)">
+    Prefixed with `VITE_` and accessible in browser:
+    
+    ```bash
+    VITE_SUPABASE_URL
+    VITE_SUPABASE_PUBLISHABLE_KEY
+    VITE_SCRAPE_TOKEN
+    VITE_YOUTUBE_API_KEY
+    VITE_GEMINI_API_KEY
+    VITE_GROQ_API_KEY
+    ```
+    
+    See `.env.example` for the complete template.
+  </Step>
+
+  <Step title="Edge Function Secrets">
+    Set via `supabase secrets set` (never in `.env`):
+    
+    ```bash
+    SCRAPE_DO_TOKEN
+    PARALLEL_API_KEY
+    YOUTUBE_API_KEY
+    GEMINI_API_KEY
+    SUPABASE_URL
+    SUPABASE_SERVICE_ROLE_KEY
+    ```
+  </Step>
+</Steps>
+
+## Component Architecture
+
+### UI Components (`components/ui/`)
+
+Shadcn-ui components built on **Radix UI primitives**:
+
+- Fully accessible (ARIA compliant)
+- Themeable via CSS variables
+- Type-safe with TypeScript
+
+Examples:
+- `button.tsx`, `dialog.tsx`, `toast.tsx`
+- `chart.tsx` (Recharts wrapper)
+- `form.tsx` (react-hook-form integration)
+
+### Feature Components
+
+**`TopicDetail.tsx`** (52KB)
+- Main analysis view
+- Handles data fetching from multiple sources
+- Renders sentiment visualizations
+- Manages real-time updates
+
+**`AIInsightsPanel.tsx`** (24KB)
+- Streaming AI summaries
+- Fallback to local keyword analysis
+- Gemini/Groq integration
+
+**`TopicSidebar.tsx`** (22KB)
+- Topic navigation
+- User preferences management
+- Saved topics and history
+
+## Scraping Layer Design
+
+The scraping architecture is designed for **extensibility**:
+
+```
+src/services/scrapeDoProvider.ts
+  ├── buildApiUrl()         # Constructs Scrape.do API URLs
+  ├── decodeEntities()      # HTML entity decoder
+  ├── stripTags()           # HTML tag stripper
+  ├── parseXHtml()          # X.com HTML parser
+  ├── parseRedditJson()     # Reddit JSON parser
+  ├── fetchXPosts()         # X scraping with options
+  ├── fetchRedditPosts()    # Reddit scraping
+  └── fetchAllScrapeDoSources()  # Parallel fetch orchestrator
+```
+
+<Accordion title="Adding a New Data Source">
+  To add support for a new platform (e.g., Hacker News, LinkedIn):
+  
+  1. **Create a parser function** in `scrapeDoProvider.ts`:
+     ```typescript
+     function parseHackerNewsHtml(html: string, query: string): Post[] {
+       // Parse HTML and return Post[] matching the schema
+     }
+     ```
+  
+  2. **Create a fetch function**:
+     ```typescript
+     export async function fetchHackerNewsPosts(
+       query: string,
+       token: string,
+       options?: ScrapeDoOptions
+     ): Promise<ScrapeDoResult> {
+       const url = buildApiUrl(token, `https://hn.algolia.com/?q=${query}`, options);
+       const response = await fetch(url);
+       const html = await response.text();
+       const posts = parseHackerNewsHtml(html, query);
+       return { status: 'success', posts, source: 'Hacker News' };
+     }
+     ```
+  
+  3. **Add to `fetchAllScrapeDoSources()`**:
+     ```typescript
+     const sources = {
+       x: () => fetchXPosts(query, token, options),
+       reddit: () => fetchRedditPosts(query, token, options),
+       hackernews: () => fetchHackerNewsPosts(query, token, options),
+     };
+     ```
+  
+  4. **Handle in `TopicDetail.tsx`**:
+     ```typescript
+     const { results, posts } = await fetchAllScrapeDoSources(
+       query,
+       token,
+       ["x", "reddit", "hackernews"]
+     );
+     ```
+</Accordion>
+
+## Testing Structure
+
+All test files live in `src/test/` and use **Vitest + Testing Library**:
+
+```
+src/test/
+├── setup.ts                    # Global test setup (jsdom, matchMedia mock)
+├── example.test.ts             # Basic example test
+└── scrapeDoProvider.test.ts    # Comprehensive service tests (267 lines)
+```
+
+See [Testing](/development/testing) for detailed testing guidelines.
+
+## Next Steps
+
+- Explore **`src/components/TopicDetail.tsx`** to understand the main analysis flow
+- Review **`src/services/scrapeDoProvider.ts`** to see how data is fetched
+- Check **`supabase/functions/`** to understand backend edge function logic
+- Read the [Testing Guide](/development/testing) to learn how to write tests

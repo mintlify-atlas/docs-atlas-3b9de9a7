@@ -1,0 +1,435 @@
+---
+title: Understanding Metrics
+description: Deep dive into how SENTi-radar calculates emotions, sentiment scores, crisis levels, and volatility
+---
+
+## Overview
+
+SENTi-radar uses a combination of keyword-based emotion detection, statistical analysis, and AI-powered summarization to provide real-time sentiment insights. This guide explains the algorithms and formulas behind each metric.
+
+## Emotion Detection System
+
+### How It Works
+
+SENTi-radar analyzes text from all sources (X posts, Reddit comments, YouTube comments, news headlines) using a **keyword lexicon scoring system**. The implementation can be found in `TopicDetail.tsx:146-167`.
+
+### The Six Core Emotions
+
+Based on Ekman's universal emotions framework:
+
+<Accordion title="Fear (35% avg in crisis topics)">
+  **Keywords**: fear, scared, worried, panic, threat, risk, dangerous, crisis, collapse, shortage, anxiety, alarm, uncertainty, instability, warn, catastroph, turmoil, chaos, tension, war, nuclear, invasion, missile, attack, afraid, terrifying, dread, horrified, alarming
+  
+  **Color**: Orange (`bg-fear`)
+  
+  **Common in**: Geopolitical conflicts, health crises, economic uncertainty, supply chain disruptions
+</Accordion>
+
+<Accordion title="Anger (48% avg in crisis topics)">
+  **Keywords**: anger, angry, outrage, furious, rage, frustrat, unacceptable, scandal, corrupt, condemn, protest, exploit, injustice, blame, backlash, fury, demand, ban, oppose, ridiculous, pathetic, disgusting, shameful, hate, upset, terrible, horrible, awful, liar
+  
+  **Color**: Red (`bg-anger`)
+  
+  **Common in**: Policy debates, corporate scandals, social justice issues, price inflation topics
+</Accordion>
+
+<Accordion title="Sadness (25% avg in negative topics)">
+  **Keywords**: sad, disappoint, tragic, loss, suffer, grief, regret, devastat, despair, victim, casualt, death, pain, mourn, unfortunate, heartbreak, sorrow, crying, tears, sorry, depressing, hopeless
+  
+  **Color**: Blue (`bg-sadness`)
+  
+  **Common in**: Climate discussions, humanitarian crises, personal finance struggles, loss events
+</Accordion>
+
+<Accordion title="Joy (45% avg in positive topics)">
+  **Keywords**: happy, excited, great, amazing, love, excellent, fantastic, celebrate, breakthrough, success, innovation, optimis, hopeful, launch, growth, improve, wonderful, awesome, congratulations, proud, thrilled, wow, incredible, blessed, thank, glad
+  
+  **Color**: Green (`bg-joy`)
+  
+  **Common in**: Product launches, tech breakthroughs, positive news, achievement announcements
+</Accordion>
+
+<Accordion title="Surprise (25% avg in mixed topics)">
+  **Keywords**: shocking, unexpected, unbelievable, stunning, incredible, reveal, bombshell, breaking, unprecedented, remarkable, wtf, omg, cant believe, seriously, really, whoa, wait what
+  
+  **Color**: Yellow (`bg-surprise`)
+  
+  **Common in**: Breaking news, unexpected announcements, viral moments, plot twists
+</Accordion>
+
+<Accordion title="Disgust (10% avg in scandal topics)">
+  **Keywords**: disgust, appalling, horrible, corrupt, toxic, vile, sickening, revolting, gross, nauseating, shameful, pathetic, ridiculuous
+  
+  **Color**: Purple (`bg-disgust`)
+  
+  **Common in**: Corruption scandals, unethical behavior, food safety issues, abuse revelations
+</Accordion>
+
+### Scoring Algorithm
+
+```typescript
+function scoreEmotions(texts: string[]): EmotionData[] {
+  const allText = texts.join(' ').toLowerCase();
+  const scores: Record<string, number> = {};
+  
+  // Count keyword matches for each emotion
+  for (const [emotion, words] of Object.entries(EMOTION_KEYWORDS)) {
+    scores[emotion] = words.reduce((sum, keyword) => {
+      const regex = new RegExp(keyword, 'gi');
+      return sum + (allText.match(regex)?.length || 0);
+    }, 0);
+  }
+  
+  // Convert to percentages
+  const total = Object.values(scores).reduce((a, b) => a + b, 0) || 1;
+  const emotions = Object.entries(scores)
+    .map(([emotion, score]) => ({
+      emotion,
+      percentage: Math.round((score / total) * 100),
+      count: score,
+    }))
+    .sort((a, b) => b.percentage - a.percentage);
+  
+  // Normalize to exactly 100%
+  const sum = emotions.reduce((s, e) => s + e.percentage, 0);
+  if (sum !== 100 && sum > 0) emotions[0].percentage += (100 - sum);
+  
+  return emotions;
+}
+```
+
+**Key Points**:
+- Case-insensitive matching
+- Partial word matches (e.g., "frustrat" matches "frustrated", "frustrating")
+- Multiple occurrences count multiple times
+- Results always sum to exactly 100%
+- Emotions sorted by dominance (highest percentage first)
+
+<Tip>
+  The dominant emotion is always `emotions[0]` and the second emotion is `emotions[1]` after sorting.
+</Tip>
+
+## Sentiment Classification
+
+### Three Sentiment States
+
+SENTi-radar classifies overall sentiment into three categories:
+
+<Tabs>
+  <Tab title="Positive">
+    **Criteria**: Positive keyword count > negative keyword count × 1.3
+    
+    **Positive Keywords** (from `TopicDetail.tsx:264`):
+    - launch, success, growth, celebrate, innovation
+    - deal, partnership, breakthrough, improve
+    - great, amazing, wonderful, fantastic
+    
+    **Typical Emotion Profile**:
+    - Joy: 40-50%
+    - Surprise: 20-30%
+    - Low anger/fear/sadness
+    
+    **Example Topics**: Product launches, tech breakthroughs, positive policy announcements
+  </Tab>
+  
+  <Tab title="Negative">
+    **Criteria**: Negative keyword count > positive keyword count × 1.3
+    
+    **Negative Keywords** (from `TopicDetail.tsx:263`):
+    - war, attack, crisis, shortage, tension, conflict
+    - scandal, ban, protest, threat, crash, decline
+    - fail, corrupt, dangerous
+    
+    **Typical Emotion Profile**:
+    - Anger: 40-50%
+    - Fear: 20-35%
+    - Sadness: 15-25%
+    
+    **Example Topics**: Geopolitical conflicts, economic crises, corporate scandals, climate issues
+  </Tab>
+  
+  <Tab title="Mixed">
+    **Criteria**: Neither positive nor negative dominates (ratio < 1.3)
+    
+    **Characteristics**:
+    - Balanced keyword distribution
+    - Competing narratives
+    - Polarized public opinion
+    
+    **Typical Emotion Profile**:
+    - Multiple emotions with similar percentages
+    - No single emotion >40%
+    
+    **Example Topics**: Policy debates, controversial tech features, regulatory discussions
+  </Tab>
+</Tabs>
+
+### Sentiment Calculation Code
+
+```typescript
+const negKw = ['war', 'attack', 'crisis', 'shortage', 'tension', 'conflict', ...];
+const posKw = ['launch', 'success', 'growth', 'celebrate', 'innovation', ...];
+
+const negCount = negKw.filter(w => text.includes(w)).length;
+const posCount = posKw.filter(w => text.includes(w)).length;
+
+const sentiment = 
+  negCount > posCount * 1.3 ? 'negative' : 
+  posCount > negCount * 1.3 ? 'positive' : 
+  'mixed';
+```
+
+<Note>
+  The 1.3x multiplier prevents minor differences from triggering a sentiment classification. A clear dominance is required.
+</Note>
+
+## Crisis Level Detection
+
+SENTi-radar automatically detects crisis situations based on negative keyword frequency.
+
+### The Four Crisis Levels
+
+| Level | Criteria | Negative Keyword Count | Visual Indicator | Typical Response |
+|-------|----------|------------------------|------------------|------------------|
+| **None** | Low concern | 0-1 keywords | 🔵 Blue | Monitor normally |
+| **Medium** | Elevated concern | 2-3 keywords | 🟡 Yellow | Watch closely |
+| **High** | Crisis risk | 4+ keywords | 🔴 Red | Immediate attention |
+
+### Crisis Detection Code
+
+```typescript
+const crisisLevel: 'none' | 'medium' | 'high' = 
+  negCount >= 4 ? 'high' : 
+  negCount >= 2 ? 'medium' : 
+  'none';
+```
+
+### Crisis Alerts
+
+When crisis level is **medium** or **high**, SENTi-radar displays real-time alerts:
+
+**High Crisis Alerts**:
+- 🔴 Negative spike detected
+- Pulsing red indicator
+- Shows dominant negative emotion
+- Timestamp: "Just now"
+
+**Medium Crisis Alerts**:
+- 🟡 Sentiment Shift
+- Amber indicator  
+- "Sudden increase in conversation volume"
+- Timestamp: "30 min ago"
+
+## Volatility Score
+
+### What It Measures
+
+Volatility indicates how rapidly conversation volume is changing. High volatility suggests:
+- Breaking news or viral moments
+- Rapid sentiment shifts
+- Potential crisis escalation
+- High public attention
+
+### Score Range
+
+- **0-40**: Low volatility (stable conversation)
+- **41-70**: Moderate volatility (growing interest)
+- **71-100**: High volatility (rapid acceleration, potential crisis)
+
+### Visual Representation
+
+The volatility widget shows:
+- 20-bar sparkline chart with random heights (simulating volume spikes)
+- Risk label: "High" (volatility >70) or "Moderate" (≤70)
+- Numerical score: "Volatility at X/100"
+
+<Tip>
+  Topics with volatility >80 should be refreshed frequently (every 5-10 minutes) during live monitoring.
+</Tip>
+
+## Volume & Change Metrics
+
+### Total Mentions Volume
+
+Displayed in abbreviated format:
+
+```typescript
+function formatVolume(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+  return n.toString();
+}
+```
+
+**Examples**:
+- `284500` → `284.5K`
+- `1200000` → `1.2M`
+- `531000` → `531.0K`
+
+### Hourly Change Percentage
+
+Shows conversation growth/decline in the last hour:
+
+- **Positive change** (e.g., `+42%`): 🔼 Green, trending up arrow
+- **Negative change** (e.g., `-15%`): 🔽 Red, trending down arrow
+
+<Note>
+  Change percentage is calculated against the previous 1-hour window, not the absolute baseline.
+</Note>
+
+## Theme Detection
+
+SENTi-radar automatically categorizes topics into 7 thematic areas:
+
+### The Seven Themes
+
+<Accordion title="Geopolitical">
+  **Keywords**: war, tension, conflict, iran, israel, russia, ukraine, china, nato, missile, nuclear, sanction, military, attack, defense, border, invasion, ceasefire, diplomacy, treaty, army, troops
+  
+  **Key Takeaway Templates**:
+  - Escalation fears are driving market volatility
+  - Diplomatic channels remain under pressure
+  - Defense and security discussions dominate
+  - Economic ripple effects are a major worry
+  - International community response is being closely watched
+</Accordion>
+
+<Accordion title="Energy">
+  **Keywords**: oil, gas, fuel, energy, opec, crude, petroleum, shortage, reserve, pipeline, refinery, barrel, lng, solar, renewable, lpg, petrol, diesel
+  
+  **Key Takeaway Templates**:
+  - Fuel price hikes are the #1 concern
+  - Energy security is being questioned
+  - Calls for strategic reserve deployment are intensifying
+  - Industry impact is significant
+  - Government policy response is under heavy public scrutiny
+</Accordion>
+
+<Accordion title="Policy">
+  **Keywords**: guideline, regulation, law, policy, government, ministry, ugc, nep, bill, act, reform, amendment, mandate, compliance, rule, directive, framework, education, university, college
+  
+  **Key Takeaway Templates**:
+  - Stakeholders are divided
+  - Implementation timeline and enforcement are major debate points
+  - Affected communities are mobilizing
+  - Legal challenges and constitutional questions are being raised
+  - Comparative analysis with international standards shows gaps and improvements
+</Accordion>
+
+<Accordion title="Tech">
+  **Keywords**: phone, galaxy, iphone, laptop, app, software, ai, robot, chip, launch, release, samsung, apple, google, tesla, nvidia, startup, feature, update, device, processor, gpu
+  
+  **Key Takeaway Templates**:
+  - Early adopters are buzzing
+  - Comparisons with competitors are driving heated debates
+  - Innovation claims are being scrutinized
+  - Pricing strategy is polarizing
+  - Supply chain and availability concerns are building
+</Accordion>
+
+<Accordion title="Economic">
+  **Keywords**: market, stock, inflation, recession, economy, gdp, trade, tariff, unemployment, interest, rate, bank, fiscal, budget, debt, investment, growth, crash, rupee, dollar
+  
+  **Key Takeaway Templates**:
+  - Market sentiment is fragile
+  - Inflation concerns are hitting household budgets
+  - Central bank policy decisions are being analyzed
+  - Employment outlook is uncertain
+  - Global trade dynamics are shifting
+</Accordion>
+
+<Accordion title="Health">
+  **Keywords**: health, covid, vaccine, hospital, disease, epidemic, pandemic, medical, drug, treatment, doctor, patient, mental, who, outbreak, virus
+  
+  **Key Takeaway Templates**:
+  - Public health preparedness is being questioned
+  - Healthcare accessibility is a key concern
+  - Trust in health institutions is being tested
+  - Preventive measures and personal health awareness are trending
+  - Policy response speed and transparency are under intense scrutiny
+</Accordion>
+
+<Accordion title="Social">
+  **Keywords**: protest, rights, justice, equality, discrimination, community, culture, religion, caste, gender, freedom, speech, democracy, election, vote
+  
+  **Key Takeaway Templates**:
+  - Deeply polarizing issue with little middle ground
+  - Social media activism is amplifying marginalized voices
+  - Historical context and precedent are being debated
+  - Political implications are significant
+  - Ground-level impact stories resonate more strongly than expert opinions
+</Accordion>
+
+### Theme Selection Algorithm
+
+```typescript
+let bestTheme = 'general';
+let bestScore = 0;
+
+for (const [theme, config] of Object.entries(TOPIC_THEMES)) {
+  const score = config.keywords.filter(kw => text.includes(kw)).length;
+  if (score > bestScore) {
+    bestScore = score;
+    bestTheme = theme;
+  }
+}
+```
+
+The theme with the most keyword matches wins. Takeaways are pulled from the winning theme's template library.
+
+## Data Source Attribution
+
+SENTi-radar displays which sources contributed to the analysis:
+
+| Source Combination | Display Label |
+|--------------------|--------------|
+| X + Reddit + YouTube + News | `X · Reddit · YouTube · News` |
+| X + Reddit | `X · Reddit` |
+| X + News | `X · News` |
+| Reddit + News | `Reddit · News` |
+| YouTube + News | `YouTube · News` |
+| News only | `News` |
+| None (fallback) | `Keyword` |
+
+<Tip>
+  The most comprehensive analysis comes from `X · Reddit · YouTube · News` sources. Configure all API keys for best results.
+</Tip>
+
+## Confidence & Accuracy
+
+### Factors Affecting Accuracy
+
+1. **Sample Size**: More texts = more accurate emotion distribution
+   - 10-30 texts: Low confidence
+   - 31-100 texts: Medium confidence
+   - 100+ texts: High confidence
+
+2. **Source Diversity**: Multi-source data reduces platform bias
+   - Single source: Platform-specific echo chamber
+   - 2-3 sources: Balanced view
+   - 4 sources: Comprehensive sentiment picture
+
+3. **Keyword Coverage**: More emotion keywords matched = higher confidence
+   - 0-5 keywords: Likely neutral/unclear
+   - 6-15 keywords: Clear sentiment pattern
+   - 16+ keywords: Very strong sentiment signal
+
+### When to Trust Metrics
+
+✅ **High Trust Scenarios**:
+- 100+ texts analyzed from 3+ sources
+- Clear emotion dominance (>40% for top emotion)
+- Multiple crisis keywords detected
+- Sentiment and emotion alignment (e.g., negative sentiment + anger/fear dominant)
+
+⚠️ **Lower Trust Scenarios**:
+- &lt;30 texts analyzed
+- Single source only (X or Reddit unavailable)
+- Flat emotion distribution (all &lt;20%)
+- Sentiment/emotion mismatch (e.g., positive sentiment but anger dominant)
+
+## Related Resources
+
+- [Analyzing Topics](/guides/analyzing-topics) - Step-by-step guide to running sentiment analysis
+- [Exporting Data](/guides/exporting-data) - Export metrics data for external analysis
+- [Adding Data Sources](/guides/adding-data-sources) - Configure API keys to improve accuracy

@@ -1,0 +1,485 @@
+---
+title: AI Strategic Insights
+description: Generate AI-powered strategic analysis and recommendations from sentiment data using GPT-4, Gemini, or local fallback
+---
+
+## Overview
+
+The AI Insights panel transforms raw sentiment data into actionable strategic recommendations. It analyzes emotion distributions, crisis levels, and volume trends to generate professional reports tailored for PR teams, communications managers, and decision-makers.
+
+## How It Works
+
+<Steps>
+  <Step title="Select a Topic">
+    Open any topic from the dashboard. The AI Insights panel appears on the right side of the Topic Detail view.
+  </Step>
+  
+  <Step title="Generate Report">
+    Click **"Generate Report"** to trigger AI analysis. The system automatically:
+    - Pulls current sentiment score
+    - Analyzes emotion breakdown
+    - Identifies crisis level and volume trends
+    - Streams a strategic analysis in real-time
+  </Step>
+  
+  <Step title="Review Recommendations">
+    The generated report includes:
+    - **Situation Assessment**: Current state summary
+    - **Key Concerns Identified**: Main issues driving sentiment
+    - **Recommended Actions**: 4-5 specific, implementable steps
+    - **Opportunities**: Positive angles to leverage
+    - **Risk Factors to Monitor**: Escalation triggers
+  </Step>
+  
+  <Step title="Ask Follow-Up Questions">
+    Use the interactive chat to dive deeper:
+    - "What should we prioritize first?"
+    - "How can we address the anger?"
+    - "What are the quick wins?"
+  </Step>
+</Steps>
+
+## Tiered AI Provider Fallback
+
+SENTi-radar uses a smart fallback system to ensure reports are always generated, even without API keys:
+
+<Tabs>
+  <Tab title="Tier 1: OpenAI GPT-4o mini">
+    **Primary provider** (if `VITE_OPENAI_API_KEY` configured)
+    
+    ```typescript
+    // Source: AIInsightsPanel.tsx (lines 71-107)
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${VITE_OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: chatMessages,
+        stream: true,
+        max_tokens: 1000,
+        temperature: 0.7
+      })
+    });
+    ```
+    
+    **Advantages**:
+    - Most reliable and accurate
+    - Best at nuanced analysis and actionable recommendations
+    - Fast streaming responses
+    
+    **Cost**: ~$0.15 per 1M input tokens, $0.60 per 1M output tokens
+  </Tab>
+  
+  <Tab title="Tier 2: Google Gemini 2.0 Flash">
+    **Secondary provider** (if `VITE_GEMINI_API_KEY` configured)
+    
+    ```typescript
+    // Source: AIInsightsPanel.tsx (lines 137-192)
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${VITE_GEMINI_API_KEY}`;
+    
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
+        generationConfig: {
+          maxOutputTokens: 1000,
+          temperature: 0.7
+        }
+      })
+    });
+    ```
+    
+    **Advantages**:
+    - Free tier available (60 requests/minute)
+    - Fast and cost-effective
+    - Good at structured analysis
+    
+    **Cost**: Free tier or $0.075 per 1M tokens
+  </Tab>
+  
+  <Tab title="Tier 3: Groq Llama (Deprecated)">
+    **Tertiary provider** (if `VITE_GROQ_API_KEY` configured)
+    
+    Uses Llama 3.3 70B for fast inference. This tier exists in the codebase but is being phased out in favor of Gemini.
+  </Tab>
+  
+  <Tab title="Tier 4: Local Fallback (Always Works)">
+    **Guaranteed fallback** (no API required)
+    
+    Generates reports using template-based analysis:
+    
+    ```typescript
+    // Source: AIInsightsPanel.tsx (lines 248-289)
+    function generateLocalInsight(
+      topic: TopicCard,
+      emotions: EmotionData[]
+    ): string {
+      const topEmo = emotions[0]?.emotion || 'surprise';
+      const topPct = emotions[0]?.percentage || 40;
+      const sentiment = topic.sentiment;
+      const crisis = topic.crisisLevel;
+      
+      return `## Situation Assessment
+      Public sentiment around **${topic.title}** is currently **${sentimentLabel}**, 
+      with **${topEmo} (${topPct}%)** as the dominant emotion.
+      
+      ## Recommended Actions
+      1. **Monitor and document** — track the ${topEmo} signals in real-time
+      2. **Engage proactively** — address leading concerns with transparent communication
+      3. **Segment your response** — tailor messaging to distinct emotional groups
+      ...
+      `;
+    }
+    ```
+    
+    **Advantages**:
+    - Always available, zero dependencies
+    - Instant generation (no API latency)
+    - Privacy-friendly (no external calls)
+    
+    **Limitations**:
+    - Template-based, less contextual than LLMs
+    - Generic recommendations
+  </Tab>
+</Tabs>
+
+<Info>
+The system tries each tier in order. If OpenAI fails (quota, network), it automatically falls back to Gemini, then Groq, then local generation.
+</Info>
+
+## Report Structure
+
+Every AI-generated report follows this professional format:
+
+### 1. Situation Assessment
+
+```markdown
+## Situation Assessment
+Public sentiment around **AI Regulation Debate** is currently **divided**, 
+with **fear (35%)** as the dominant emotion. Crisis level is **medium**, 
+indicating elevated public concern. Volume has shifted **+42%**, suggesting 
+rapidly escalating public engagement.
+```
+
+**Purpose**: Provides a 2-3 sentence snapshot of the current landscape.
+
+### 2. Key Concerns Identified
+
+```markdown
+## Key Concerns Identified
+- **Fear dominance (35%)** — the primary emotional driver shaping narratives
+- **Anger** as secondary emotion signals competing public reactions
+- Rising volume indicates growing public interest that needs to be channeled
+- Emotional polarization (fear 35%, anger 28%, surprise 18%) suggests fragmented audience segments
+```
+
+**Purpose**: Bullet-point list of the 3-4 main issues driving sentiment.
+
+### 3. Recommended Actions
+
+```markdown
+## Recommended Actions
+1. **Monitor and document** — track the fear signals in real-time for early escalation warnings
+2. **Engage proactively** — address the leading concerns with transparent, factual communication via official channels
+3. **Segment your response** — tailor messaging to the distinct emotional groups (fear vs anger audiences)
+4. **Establish rapid response protocols** — Proactive monitoring and engagement is advised.
+5. **Measure sentiment shift** — set up hourly tracking alerts for #AIRegulation
+```
+
+**Purpose**: 4-5 specific, actionable steps. Each starts with an action verb and is implementable.
+
+### 4. Opportunities
+
+```markdown
+## Opportunities
+- The **35% fear** signal can be redirected into constructive dialogue if addressed proactively
+- Current volume spike (+42%) is an opportunity to own the narrative before it solidifies
+- Building credibility now through transparent communication will pay dividends when sentiment stabilizes
+```
+
+**Purpose**: 2-3 positive angles or silver linings.
+
+### 5. Risk Factors to Monitor
+
+```markdown
+## Risk Factors to Monitor
+- **Escalation trigger**: A new development could push sentiment toward crisis level
+- **Narrative hijacking**: Third parties or media may amplify the anger signal to shift the story
+- **Sentiment fatigue**: Prolonged high-volume discourse without resolution leads to disengagement or backlash
+```
+
+**Purpose**: 2-3 things that could make the situation worse.
+
+## Interactive Chat
+
+After generating a report, expand the "Ask More About This Analysis" section to chat with the AI:
+
+<Tabs>
+  <Tab title="How to Use">
+    1. Click **"Ask More About This Analysis"** to expand the chat panel
+    2. Type a question or click a suggested prompt:
+       - "What should we prioritize first?"
+       - "How can we address the anger?"
+       - "What are the quick wins?"
+    3. Press **Enter** or click the **Send** button
+    4. The AI responds in context of the generated report
+    
+    <Info>
+    The chat maintains conversation history, so you can ask follow-up questions that reference previous answers.
+    </Info>
+  </Tab>
+  
+  <Tab title="Example Conversation">
+    **User**: What should we prioritize first?
+    
+    **AI**: Based on the sentiment data for **AI Regulation Debate**, prioritize addressing the **fear (35%)** response first. This is the dominant emotion and indicates public anxiety about job displacement and lack of oversight. Focus on:
+    
+    1. Transparent communication about safeguards
+    2. Real-world examples of positive regulation outcomes (EU model)
+    3. Direct engagement with tech workers (3x more fearful than general public)
+    
+    **User**: How can we address the anger?
+    
+    **AI**: The **28% anger** stems from frustration with perceived government inaction and corporate monopoly concerns. Address it by:
+    
+    - Acknowledging the valid concerns publicly
+    - Sharing concrete timelines for regulatory action
+    - Highlighting small business support measures to counter "innovation killer" narrative
+  </Tab>
+  
+  <Tab title="Technical Details">
+    ```typescript
+    // Source: AIInsightsPanel.tsx (lines 371-397)
+    const sendMessage = () => {
+      const userMsg: Message = { 
+        role: 'user', 
+        content: inputValue.trim() 
+      };
+      setChatMessages((prev) => [...prev, userMsg]);
+      
+      streamInsights({
+        topic,
+        emotions,
+        messages: [...chatMessages, userMsg],
+        isChat: true,  // Flag for conversational mode
+        onDelta: (chunk) => {
+          assistantContent += chunk;
+          setChatMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.role === 'assistant') {
+              return prev.map((m, i) => 
+                i === prev.length - 1 
+                  ? { ...m, content: assistantContent } 
+                  : m
+              );
+            }
+            return [...prev, { 
+              role: 'assistant', 
+              content: assistantContent 
+            }];
+          });
+        }
+      });
+    };
+    ```
+    
+    The chat uses the same tiered fallback as report generation (OpenAI → Gemini → Local).
+  </Tab>
+</Tabs>
+
+## System Prompts
+
+The AI uses different prompts for reports vs. chat:
+
+### Report Generation Prompt
+
+```typescript
+// Source: AIInsightsPanel.tsx (lines 37-67)
+const systemPrompt = `You are a senior PR and communications strategist. 
+Analyze the following public sentiment data and provide balanced, actionable recommendations.
+
+Topic: ${topicName}
+Hashtag: ${hashtag}
+Overall Sentiment: ${sentiment}
+Crisis Level: ${crisis}
+Emotion Breakdown: ${emotionStr}
+Volume Change: ${change}
+
+Generate a professional analysis report with these sections:
+
+## Situation Assessment
+Brief overview of the current public sentiment landscape (2-3 sentences).
+
+## Key Concerns Identified
+- Main issues driving sentiment (3-4 bullet points)
+
+## Recommended Actions
+4-5 actionable recommendations. Each should:
+- Start with a clear action verb
+- Be specific and implementable
+- Consider both immediate and long-term impact
+
+## Opportunities
+- 2-3 opportunities arising from this situation
+
+## Risk Factors to Monitor
+- 2-3 things that could escalate or shift the situation
+
+Keep the tone professional, balanced, and constructive.`;
+```
+
+### Chat Mode Prompt
+
+```typescript
+// Source: AIInsightsPanel.tsx (lines 27-35)
+const systemPrompt = `You are an AI analyzing public sentiment data.
+Topic: ${topicName}
+Hashtag: ${hashtag}
+Overall Sentiment: ${sentiment}
+Crisis Level: ${crisis}
+Top Emotions: ${emotionStr}
+
+Answer questions concisely and directly. No filler, no pleasantries. Just precise answers.`;
+```
+
+<Note>
+Chat mode uses a more conversational tone and focuses on direct answers rather than full reports.
+</Note>
+
+## Configuration
+
+To enable AI insights, add at least one API key to your `.env` file:
+
+```bash
+# Recommended: OpenAI (best quality)
+VITE_OPENAI_API_KEY=sk-proj-...
+
+# Alternative: Gemini (free tier available)
+VITE_GEMINI_API_KEY=AIza...
+
+# Fallback: Groq (fast inference)
+VITE_GROQ_API_KEY=gsk_...
+```
+
+<Info>
+**No API keys?** The platform still works! Local generation is always available and provides solid template-based analysis.
+</Info>
+
+## Data Source Indicator
+
+The AI Insights panel displays which provider generated the report:
+
+```tsx
+// Source: AIInsightsPanel.tsx (lines 414-418)
+{dataSource && !isGenerating && (
+  <span className="text-[9px] bg-green-500/10 text-green-600 px-2 py-0.5 rounded-full">
+    ✓ {dataSource}
+  </span>
+)}
+```
+
+**Possible values**:
+- `✓ GPT-4o mini`
+- `✓ Gemini`
+- `✓ Groq`
+- `✓ Local`
+
+## Use Cases
+
+### Crisis Response Planning
+
+**Scenario**: Food price crisis (48% anger, 22% fear)
+
+**AI Recommendation**:
+```markdown
+## Recommended Actions
+1. **Acknowledge public frustration** — Issue statement recognizing grocery cost burden
+2. **Share concrete relief measures** — Announce price control investigations, subsidies, or relief programs
+3. **Combat misinformation** — Address "corporate greed" narrative with supply chain transparency
+4. **Engage directly with affected communities** — Town halls, social media Q&A sessions
+```
+
+### Product Launch Optimization
+
+**Scenario**: iPhone 18 launch (45% joy, 25% surprise, 15% anger)
+
+**AI Recommendation**:
+```markdown
+## Opportunities
+- Holographic display is generating viral "wow" moments — amplify with user-generated content campaigns
+- Android users showing unusual interest (+300%) — targeted cross-platform marketing opportunity
+
+## Key Concerns
+- 15% anger around pricing, especially "no USB-C" meme — address in next press release or FAQ
+```
+
+### Policy Communication
+
+**Scenario**: AI regulation debate (35% fear, 28% anger)
+
+**AI Recommendation**:
+```markdown
+## Recommended Actions
+1. **Segment messaging by audience** — Tech workers (fear-driven) vs general public (anger-driven)
+2. **Showcase international precedent** — EU regulation praised as template; position as learning from best practices
+3. **Address job displacement directly** — Publish reskilling programs, transition support initiatives
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Generate Reports Early" icon="zap">
+    Don't wait for a crisis. Generate reports for stable topics to establish baselines and track trends over time.
+  </Card>
+  
+  <Card title="Use Chat for Specifics" icon="message-circle">
+    The initial report is high-level. Use chat to drill down: "What's the best quick win?" or "Which stakeholder group is most angry?"
+  </Card>
+  
+  <Card title="Combine with Export" icon="download">
+    Export reports as PDF for stakeholder briefings or board presentations (Settings → Export Report).
+  </Card>
+  
+  <Card title="Regenerate After Events" icon="refresh-cw">
+    If sentiment shifts after a statement or announcement, click "Regenerate" to get updated recommendations.
+  </Card>
+</CardGroup>
+
+## Limitations
+
+<Note>
+**LLM hallucination risk**: AI-generated recommendations are based on emotion percentages and keywords, not deep semantic understanding. Always cross-check with the raw Live Feed and Top Voices panels.
+
+**No domain expertise**: The AI doesn't know your industry, brand history, or internal constraints. Treat recommendations as a starting point, not gospel.
+
+**Static analysis**: Reports are generated from a single snapshot. For evolving situations, regenerate every 6-12 hours.
+</Note>
+
+## Advanced: Supabase Edge Function (Deprecated)
+
+The codebase includes a Supabase Edge Function integration for server-side LLM calls:
+
+```typescript
+// Source: AIInsightsPanel.tsx (lines 194-246)
+const url = `${VITE_SUPABASE_URL}/functions/v1/generate-insights`;
+const resp = await fetch(url, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${VITE_SUPABASE_PUBLISHABLE_KEY}`
+  },
+  body: JSON.stringify({ topic, emotions, sentiment, crisisLevel, messages })
+});
+```
+
+This is now Tier 3 (after OpenAI and Gemini) and primarily used for legacy deployments. Most users should rely on direct OpenAI/Gemini calls.
+
+## Related Features
+
+- [Sentiment Analysis](/features/sentiment-analysis) - Provides the data that fuels AI insights
+- [Emotion Classification](/features/emotion-classification) - Emotion breakdown powers the AI's understanding
+- [Crisis Detection](/features/crisis-detection) - AI insights include crisis-specific recommendations

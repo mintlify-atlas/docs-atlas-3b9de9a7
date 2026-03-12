@@ -1,0 +1,474 @@
+---
+title: API Keys
+description: Get API keys for YouTube, Gemini, Groq, and other third-party services
+---
+
+SENTi-radar integrates with multiple third-party APIs to enhance data collection and AI analysis. This guide walks you through obtaining API keys for each service.
+
+<Note>
+  All API keys listed here are **optional**. SENTi-radar has built-in fallback mechanisms and works without any external AI keys by using local keyword-based analysis.
+</Note>
+
+## Overview
+
+| Service | Purpose | Required | Free Tier | Monthly Quota |
+|---------|---------|----------|-----------|---------------|
+| **Scrape.do** | X & Reddit scraping | ⭐ Recommended | ✅ Yes | 1,000 requests |
+| **YouTube Data API** | Video comments | Optional | ✅ Yes | 10,000 units/day |
+| **Google Gemini** | AI sentiment analysis | Optional | ✅ Yes | 15 RPM (free tier) |
+| **Groq** | Secondary LLM | Optional | ✅ Yes | 14,400 requests/day |
+| **Parallel.ai** | Social search fallback | Optional | ❌ Paid only | Varies by plan |
+
+## Scrape.do (Recommended)
+
+<Note>
+  This is the **primary data source** for X (Twitter) and Reddit. Without it, the app falls back to YouTube → Parallel.ai → Algorithmic generation.
+</Note>
+
+<Steps>
+  <Step title="Create account">
+    1. Go to [scrape.do](https://scrape.do/)
+    2. Click **Sign Up** or **Start Free Trial**
+    3. Verify your email address
+  </Step>
+
+  <Step title="Get API token">
+    1. Log in to [Scrape.do dashboard](https://scrape.do/dashboard)
+    2. Navigate to **API Tokens** section
+    3. Copy your default token or create a new one
+    4. Note your free tier credits (usually 1,000 requests)
+  </Step>
+
+  <Step title="Add to environment">
+    **Client (.env):**
+    ```bash
+    VITE_SCRAPE_TOKEN=your-scrape-do-token-here
+    ```
+
+    **Server (Supabase):**
+    ```bash
+    supabase secrets set SCRAPE_DO_TOKEN=your-scrape-do-token-here
+    ```
+  </Step>
+</Steps>
+
+**Pricing:**
+- Free tier: 1,000 requests
+- Standard request: 1-5 credits
+- With rendering: 5-10 credits
+- Residential proxies: 25-50 credits
+
+**Documentation:** [docs.scrape.do](https://docs.scrape.do)
+
+---
+
+## YouTube Data API v3
+
+Enables fetching video search results and comments for sentiment analysis.
+
+<Steps>
+  <Step title="Create Google Cloud project">
+    1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+    2. Click **Select a project** → **New Project**
+    3. Enter project name: `senti-radar-youtube`
+    4. Click **Create**
+  </Step>
+
+  <Step title="Enable YouTube Data API">
+    1. In the Cloud Console, go to **APIs & Services → Library**
+    2. Search for "YouTube Data API v3"
+    3. Click **YouTube Data API v3**
+    4. Click **Enable**
+  </Step>
+
+  <Step title="Create API credentials">
+    1. Go to **APIs & Services → Credentials**
+    2. Click **Create Credentials → API Key**
+    3. Copy the generated API key
+    4. (Optional) Click **Restrict Key** to add application restrictions:
+       - **Application restrictions:** HTTP referrers or IP addresses
+       - **API restrictions:** Restrict to YouTube Data API v3
+  </Step>
+
+  <Step title="Add to environment">
+    **Client (.env):**
+    ```bash
+    VITE_YOUTUBE_API_KEY=AIzaSyDxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    ```
+
+    **Server (Supabase):**
+    ```bash
+    supabase secrets set YOUTUBE_API_KEY=AIzaSyDxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    ```
+  </Step>
+</Steps>
+
+**Quota Limits:**
+- Default: 10,000 units per day
+- Search request: 100 units
+- Video details: 1 unit
+- Comments: 1 unit
+
+**Cost:** Free tier is generous. Paid plans available if you exceed quota.
+
+**Documentation:** [YouTube Data API Docs](https://developers.google.com/youtube/v3)
+
+<Warning>
+  YouTube API quota resets daily at midnight Pacific Time (PT). Plan your requests accordingly.
+</Warning>
+
+---
+
+## Google Gemini AI
+
+Powers AI sentiment analysis, emotion detection, and summary generation.
+
+<Steps>
+  <Step title="Get API key">
+    1. Go to [Google AI Studio](https://ai.google.dev/)
+    2. Click **Get API key**
+    3. Sign in with your Google account
+    4. Click **Create API key**
+    5. Select a Google Cloud project (or create new)
+    6. Copy the generated API key
+  </Step>
+
+  <Step title="Add to environment">
+    **Client (.env):**
+    ```bash
+    VITE_GEMINI_API_KEY=AIzaSyCxxxxxxxxxxxxxxxxxxxxxxxx
+    ```
+
+    **Server (Supabase):**
+    ```bash
+    supabase secrets set GEMINI_API_KEY=AIzaSyCxxxxxxxxxxxxxxxxxxxxxxxx
+    ```
+  </Step>
+
+  <Step title="Verify integration">
+    Test the API key:
+
+    ```bash
+    curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=YOUR_API_KEY" \
+      -H 'Content-Type: application/json' \
+      -d '{"contents":[{"parts":[{"text":"Test"}]}]}'
+    ```
+  </Step>
+</Steps>
+
+**Model Used:** `gemini-1.5-flash`
+
+**Rate Limits (Free Tier):**
+- 15 requests per minute (RPM)
+- 1 million tokens per minute (TPM)
+- 1,500 requests per day (RPD)
+
+**Fallback:** If Gemini fails or is unavailable, SENTi-radar uses a local keyword-based sentiment engine.
+
+**Pricing:**
+- Free tier: Generous limits for development
+- Pay-as-you-go: $0.075 per 1M input tokens
+
+**Documentation:** [Gemini API Docs](https://ai.google.dev/docs)
+
+**Used in these functions:**
+- `analyze-sentiment` (sentiment + emotion classification)
+- `generate-insights` (AI summaries and key takeaways)
+- `analyze-topic` (comprehensive topic analysis)
+
+---
+
+## Groq
+
+Secondary LLM option for streaming AI summaries (alternative to Gemini).
+
+<Steps>
+  <Step title="Create Groq account">
+    1. Go to [console.groq.com](https://console.groq.com/)
+    2. Sign up with email or Google account
+    3. Verify your email
+  </Step>
+
+  <Step title="Generate API key">
+    1. Log in to [Groq Console](https://console.groq.com/keys)
+    2. Click **Create API Key**
+    3. Enter a name: `senti-radar-production`
+    4. Click **Create**
+    5. Copy the API key (starts with `gsk_`)
+  </Step>
+
+  <Step title="Add to environment">
+    **Client (.env):**
+    ```bash
+    VITE_GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    ```
+
+    <Note>
+      Groq is primarily used client-side. No need to set as Supabase secret unless you modify edge functions to use Groq.
+    </Note>
+  </Step>
+</Steps>
+
+**Models Available:**
+- `llama-3.1-70b-versatile`
+- `llama-3.1-8b-instant`
+- `mixtral-8x7b-32768`
+- `gemma2-9b-it`
+
+**Rate Limits (Free Tier):**
+- 14,400 requests per day
+- 30 requests per minute
+- Very fast inference speed (100+ tokens/sec)
+
+**Pricing:**
+- Free tier: 14,400 requests/day
+- Pay-as-you-go: $0.10 per 1M tokens (Llama 3.1 8B)
+
+**Documentation:** [Groq Docs](https://console.groq.com/docs)
+
+---
+
+## Parallel.ai (Optional)
+
+Social search fallback when Scrape.do is unavailable.
+
+<Warning>
+  Parallel.ai is a **paid service** with no free tier. Only configure if you have a paid account and need additional fallback beyond YouTube.
+</Warning>
+
+<Steps>
+  <Step title="Sign up for Parallel.ai">
+    1. Go to [parallel.ai](https://www.parallel.ai/)
+    2. Contact sales or sign up for a plan
+    3. Complete onboarding and payment setup
+  </Step>
+
+  <Step title="Get API key">
+    1. Log in to Parallel.ai dashboard
+    2. Navigate to **Settings → API Keys**
+    3. Generate a new API key
+    4. Copy the key
+  </Step>
+
+  <Step title="Add to Supabase secrets">
+    ```bash
+    supabase secrets set PARALLEL_API_KEY=your-parallel-api-key
+    ```
+
+    <Note>
+      Parallel.ai is **only used server-side** in the `fetch-twitter` edge function. No client-side configuration needed.
+    </Note>
+  </Step>
+</Steps>
+
+**Used in:** `fetch-twitter` edge function (Step 2 fallback)
+
+**Documentation:** Contact Parallel.ai support for API docs
+
+---
+
+## Verification Checklist
+
+After obtaining your API keys, verify they're configured correctly:
+
+<Steps>
+  <Step title="Check environment files">
+    ```bash
+    # View your .env file (client-side)
+    cat .env
+
+    # Should contain:
+    # VITE_SUPABASE_URL=...
+    # VITE_SUPABASE_PUBLISHABLE_KEY=...
+    # VITE_SCRAPE_TOKEN=...
+    # VITE_YOUTUBE_API_KEY=...
+    # VITE_GEMINI_API_KEY=...
+    # VITE_GROQ_API_KEY=...
+    ```
+  </Step>
+
+  <Step title="Check Supabase secrets">
+    ```bash
+    # List all edge function secrets
+    supabase secrets list
+
+    # Should show:
+    # SCRAPE_DO_TOKEN
+    # YOUTUBE_API_KEY
+    # GEMINI_API_KEY
+    # PARALLEL_API_KEY (optional)
+    # SUPABASE_URL
+    # SUPABASE_SERVICE_ROLE_KEY
+    ```
+  </Step>
+
+  <Step title="Test API connections">
+    Start the development server:
+
+    ```bash
+    npm run dev
+    ```
+
+    1. Create a new topic in the UI
+    2. Watch browser console for API calls
+    3. Check for successful responses (HTTP 200)
+    4. Verify posts are fetched and analyzed
+  </Step>
+
+  <Step title="Test edge functions">
+    ```bash
+    # Test fetch-twitter function
+    supabase functions serve fetch-twitter
+
+    # In another terminal, invoke the function
+    curl -i --location --request POST \
+      'http://localhost:54321/functions/v1/fetch-twitter' \
+      --header 'Content-Type: application/json' \
+      --data '{"topic_id":"test-uuid-here"}'
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Best Practices
+
+### Security
+
+<Warning>
+  - **Never commit API keys to Git**
+  - Use `.env` files (already in `.gitignore`)
+  - Rotate keys regularly
+  - Use environment-specific keys (dev vs. prod)
+</Warning>
+
+### Key Rotation
+
+```bash
+# Rotate client keys
+1. Update .env with new key
+2. Restart dev server: npm run dev
+
+# Rotate server keys
+1. Update Supabase secrets: supabase secrets set KEY=new-value
+2. Redeploy functions: supabase functions deploy
+```
+
+### Rate Limiting
+
+1. **Implement exponential backoff** for rate limit errors (429)
+2. **Cache API responses** to reduce duplicate requests
+3. **Monitor quota usage** in each service's dashboard
+4. **Set up alerts** when approaching quota limits
+
+### Cost Optimization
+
+1. **Use free tiers first** before upgrading to paid plans
+2. **Enable only necessary APIs** (start with Scrape.do + Gemini)
+3. **Monitor usage** in each provider's dashboard
+4. **Implement caching** to reduce redundant API calls
+5. **Use fallbacks wisely**:
+   - Scrape.do (primary)
+   - YouTube (secondary)
+   - Parallel.ai (tertiary, paid)
+   - Algorithmic (guaranteed fallback)
+
+---
+
+## Troubleshooting
+
+### API Key Not Working
+
+**Problem:** API returns 401/403 errors
+
+**Solutions:**
+1. Verify key is copied correctly (no extra spaces)
+2. Check key is active in provider dashboard
+3. Verify API is enabled (for Google APIs)
+4. Check IP restrictions (if configured)
+5. Restart dev server after adding keys
+
+### Quota Exceeded
+
+**Problem:** API returns 429 or quota error
+
+**Solutions:**
+1. Check usage in provider dashboard
+2. Wait for quota reset (usually daily)
+3. Implement request caching
+4. Upgrade to paid tier
+5. Use fallback providers
+
+### Edge Function Can't Access Secrets
+
+**Problem:** Function logs show "undefined" for secrets
+
+**Solutions:**
+1. Verify secrets are set: `supabase secrets list`
+2. Redeploy function after setting secrets
+3. Check secret name matches exactly (case-sensitive)
+4. View function logs: `supabase functions logs <function-name>`
+
+### YouTube API Quota Depletes Quickly
+
+**Problem:** Hitting 10,000 unit daily limit
+
+**Solutions:**
+1. Each search costs 100 units (limit to 100 searches/day)
+2. Implement result caching in database
+3. Reduce `maxResults` parameter (default 15)
+4. Request quota increase in Google Cloud Console
+5. Use YouTube only as fallback (not primary source)
+
+---
+
+## API Key Reference Summary
+
+<CodeGroup>
+```bash .env (Client-Side)
+# Required
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=eyJhbGciOi...
+
+# Recommended
+VITE_SCRAPE_TOKEN=abc123...
+
+# Optional
+VITE_YOUTUBE_API_KEY=AIzaSyD...
+VITE_GEMINI_API_KEY=AIzaSyC...
+VITE_GROQ_API_KEY=gsk_...
+```
+
+```bash Supabase Secrets (Server-Side)
+# Required
+supabase secrets set SUPABASE_URL=https://your-project.supabase.co
+supabase secrets set SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOi...
+
+# Recommended
+supabase secrets set SCRAPE_DO_TOKEN=abc123...
+supabase secrets set GEMINI_API_KEY=AIzaSyC...
+
+# Optional
+supabase secrets set YOUTUBE_API_KEY=AIzaSyD...
+supabase secrets set PARALLEL_API_KEY=parallel...
+```
+</CodeGroup>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" icon="code" href="./environment-variables">
+    Complete environment configuration guide
+  </Card>
+  <Card title="Supabase Setup" icon="database" href="./supabase-setup">
+    Deploy edge functions and database
+  </Card>
+  <Card title="Scrape.do Integration" icon="globe" href="./scrape-do-integration">
+    Advanced scraping configuration
+  </Card>
+  <Card title="Deployment" icon="rocket" href="../deployment">
+    Deploy your app to production
+  </Card>
+</CardGroup>

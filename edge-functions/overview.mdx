@@ -1,0 +1,151 @@
+---
+title: Edge Functions Overview
+description: Real-time serverless functions powering SENTi-radar's sentiment analysis pipeline
+---
+
+## Introduction
+
+SENTi-radar's edge functions are serverless Deno-based endpoints deployed on Supabase that power the entire sentiment analysis workflow. These functions handle data collection from multiple social platforms, AI-powered sentiment analysis, insight generation, and automated monitoring.
+
+## Architecture
+
+The edge functions follow an orchestrator pattern:
+
+1. **analyze-topic** - Main orchestrator that coordinates all other functions
+2. **Data Collection** - Platform-specific scrapers (Twitter/X, Reddit, YouTube)
+3. **Analysis** - Gemini-powered sentiment and emotion detection
+4. **Insights** - AI-generated reports and recommendations
+5. **Monitoring** - Scheduled scans and crisis alerts
+
+## Function Catalog
+
+<CardGroup cols={2}>
+  <Card title="analyze-topic" icon="diagram-project" href="/edge-functions/analyze-topic">
+    Orchestrator function that creates topics and coordinates data fetching and analysis
+  </Card>
+  <Card title="fetch-twitter" icon="x-twitter" href="/edge-functions/fetch-twitter">
+    Scrapes X/Twitter posts via Scrape.do with YouTube and Parallel.ai fallbacks
+  </Card>
+  <Card title="fetch-reddit" icon="reddit" href="/edge-functions/fetch-reddit">
+    Extracts Reddit discussions and comments using web scraping
+  </Card>
+  <Card title="fetch-youtube" icon="youtube" href="/edge-functions/fetch-youtube">
+    Fetches YouTube video comments using official Google API
+  </Card>
+  <Card title="analyze-sentiment" icon="brain" href="/edge-functions/analyze-sentiment">
+    AI-powered sentiment and emotion classification using Gemini 1.5 Flash
+  </Card>
+  <Card title="generate-insights" icon="lightbulb" href="/edge-functions/generate-insights">
+    Generates strategic recommendations and analysis reports with Gemini 2.0 Flash
+  </Card>
+  <Card title="scheduled-monitor" icon="clock" href="/edge-functions/scheduled-monitor">
+    Automated background monitoring and crisis alerting system
+  </Card>
+</CardGroup>
+
+## Authentication
+
+All edge functions require Supabase authentication:
+
+<CodeGroup>
+```bash Authorization Header
+curl -X POST https://your-project.supabase.co/functions/v1/function-name \
+  -H "Authorization: Bearer YOUR_SUPABASE_ANON_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"topic_id": "uuid-here"}'
+```
+
+```typescript Service Role (Internal)
+const res = await fetch(`${supabaseUrl}/functions/v1/function-name`, {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${supabaseServiceKey}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ topic_id: topicId })
+});
+```
+</CodeGroup>
+
+<Note>
+Most functions are designed to be called internally by the orchestrator using the service role key. Only `analyze-topic` and `generate-insights` are typically called directly from client applications.
+</Note>
+
+## Environment Variables
+
+<ParamField body="SUPABASE_URL" type="string" required>
+  Your Supabase project URL (auto-injected)
+</ParamField>
+
+<ParamField body="SUPABASE_SERVICE_ROLE_KEY" type="string" required>
+  Service role key for database access (auto-injected)
+</ParamField>
+
+<ParamField body="SCRAPE_DO_TOKEN" type="string">
+  API token for Scrape.do web scraping service (required for X/Twitter and Reddit)
+</ParamField>
+
+<ParamField body="YOUTUBE_API_KEY" type="string">
+  Google YouTube Data API v3 key (required for YouTube comments)
+</ParamField>
+
+<ParamField body="GEMINI_API_KEY" type="string">
+  Google Gemini API key for AI analysis and insights (required for sentiment analysis)
+</ParamField>
+
+<ParamField body="PARALLEL_API_KEY" type="string">
+  Parallel AI API key for web search fallback (optional)
+</ParamField>
+
+## CORS Configuration
+
+All functions include CORS headers allowing cross-origin requests:
+
+```typescript
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type"
+};
+```
+
+## Error Handling
+
+All functions return consistent error formats:
+
+```json Error Response
+{
+  "success": false,
+  "error": "Descriptive error message"
+}
+```
+
+<Warning>
+Functions designed for internal orchestrator use (like `fetch-twitter`, `analyze-sentiment`) return `success: false` with HTTP 200 instead of 5xx errors to allow graceful degradation in the pipeline.
+</Warning>
+
+## Rate Limits
+
+<Warning>
+**External API Limits:**
+- **Scrape.do**: Varies by plan (quota errors return `scrape_status: "quota"`)
+- **YouTube API**: 10,000 units/day (each search = 100 units, comments = 1 unit)
+- **Gemini API**: 15 RPM free tier, 360 RPM paid tier
+- **Parallel AI**: Varies by plan
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get started with your first sentiment analysis
+  </Card>
+  <Card title="Analyze Topic" icon="sparkles" href="/edge-functions/analyze-topic">
+    Main orchestration endpoint
+  </Card>
+  <Card title="Fetch Twitter" icon="bird" href="/edge-functions/fetch-twitter">
+    X/Twitter data collection
+  </Card>
+  <Card title="Analyze Sentiment" icon="face-smile" href="/edge-functions/analyze-sentiment">
+    AI sentiment analysis
+  </Card>
+</CardGroup>

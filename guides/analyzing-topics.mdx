@@ -1,0 +1,258 @@
+---
+title: Analyzing Topics
+description: Learn how to search for and analyze sentiment on any topic using SENTi-radar's real-time analysis engine
+---
+
+## Overview
+
+SENTi-radar allows you to perform real-time sentiment analysis on any topic, brand, event, or hashtag by pulling live data from multiple sources including X (Twitter), Reddit, YouTube, and news feeds. The platform combines multi-source data with AI-powered emotion detection to give you instant insights into public sentiment.
+
+<Note>
+  SENTi-radar analyzes up to 100+ live posts per topic from across X, Reddit, YouTube comments, and Google News RSS feeds in real-time.
+</Note>
+
+## Searching for a Topic
+
+<Steps>
+  <Step title="Enter your search query">
+    Navigate to the main dashboard and locate the search bar at the top of the page. You can search for:
+    - **Topics**: "AI regulation", "Climate change"
+    - **Brands**: "iPhone", "Tesla"
+    - **Hashtags**: "#ClimateSummit2026"
+    - **Events**: "Food prices", "Bitcoin"
+    
+    <Tip>
+      Use the suggestion chips below the search bar for quick access to trending topics like "AI regulation", "Climate change", "iPhone", "Food prices", and "Bitcoin".
+    </Tip>
+  </Step>
+
+  <Step title="Click 'Analyze' to start the analysis">
+    Once you've entered your query, click the **Analyze** button. You'll see a loading state with the text "Analyzing" while SENTi-radar:
+    
+    1. Fetches live posts from X (Twitter) via Scrape.do
+    2. Retrieves Reddit discussions via Scrape.do  
+    3. Pulls YouTube comments from relevant videos
+    4. Gathers news headlines from Google News RSS
+    5. Analyzes all text for emotion and sentiment patterns
+    6. Generates an AI-powered summary
+
+    <Note>
+      The entire process typically takes 5-10 seconds depending on the volume of data available.
+    </Note>
+  </Step>
+
+  <Step title="View the topic detail panel">
+    After analysis completes, the topic detail panel opens automatically, displaying:
+    - Overall sentiment gauge (positive/negative/neutral distribution)
+    - Dominant emotion with percentage
+    - Total mention volume and hourly change
+    - Volatility score with visual chart
+    - AI-generated summary with key takeaways
+    - Emotional breakdown across 6 emotions
+    - Sentiment trend over time
+    - Crisis alerts (if applicable)
+  </Step>
+</Steps>
+
+## Understanding the Live Overview Panel
+
+The Live Overview Panel displays four key KPI cards:
+
+### Overall Sentiment
+A gauge chart showing the distribution of:
+- **Positive sentiment** (green): Joy, surprise, excitement
+- **Negative sentiment** (red): Anger, fear, sadness, disgust  
+- **Neutral sentiment** (gray): Mixed or unclear signals
+
+### Dominant Emotion
+The most prevalent emotion detected in the analyzed texts, shown with:
+- Emotion name (Joy, Anger, Sadness, Fear, Surprise, or Disgust)
+- Percentage of total emotion distribution
+- Number of texts analyzed
+- Data source badge (e.g., "X · Reddit · YouTube · News")
+
+<Accordion title="How emotions are calculated">
+  SENTi-radar uses a keyword lexicon-based scoring system defined in `TopicDetail.tsx:34-42`. Each text is scanned for emotion keywords:
+  
+  - **Fear**: "scared", "worried", "panic", "threat", "crisis", "uncertainty"
+  - **Anger**: "outrage", "furious", "frustrat", "scandal", "protest", "blame"
+  - **Sadness**: "disappoint", "tragic", "loss", "grief", "devastat"
+  - **Joy**: "excited", "great", "love", "celebrate", "success", "optimis"
+  - **Surprise**: "shocking", "unexpected", "stunning", "breaking"
+  - **Disgust**: "appalling", "horrible", "corrupt", "toxic", "vile"
+  
+  Scores are aggregated across all sources and normalized to 100%.
+</Accordion>
+
+### Total Mentions
+Displays the total conversation volume with:
+- Formatted count (e.g., "284.5K", "1.2M")
+- Percentage change in the last hour
+- Trending indicator (up/down arrow)
+
+### Volatility Score
+A mini sparkline chart showing conversation volatility with:
+- Visual representation of volume spikes
+- Risk level: High or Moderate
+- Numerical volatility score (0-100)
+
+## AI-Generated Summary
+
+The summary section provides:
+
+1. **Headline**: Includes emoji indicator (🔴 High Crisis, 🟡 Elevated Concern, 🟢 Positive Momentum, 🔵 Mixed Signals), dominant emotions, and risk assessment
+
+2. **Narrative**: 2-3 sentences analyzing the topic with:
+   - Specific emotion percentages
+   - Direct quotes from real posts
+   - Evidence-based insights
+
+3. **People's Voice – Key Takeaways**: 5 bullet points covering:
+   - Most repeated sentiments
+   - Public concerns or reactions
+   - Data-driven observations
+   - Forward-looking trends
+   - Ground-level impact stories
+
+<Tabs>
+  <Tab title="With API Keys">
+    When `VITE_GEMINI_API_KEY` or `VITE_GROQ_API_KEY` is configured, SENTi-radar streams AI-generated summaries in real-time using:
+    
+    1. **Gemini 2.0 Flash** (primary) - Google's generative AI
+    2. **Groq Llama 3.3 70B** (fallback) - High-speed open-source LLM
+    
+    The summary appears word-by-word with a blinking cursor animation.
+  </Tab>
+  
+  <Tab title="Without API Keys">
+    If no API keys are configured, SENTi-radar generates a local summary using template-based narratives and keyword analysis. The output quality is still high and includes:
+    
+    - Theme detection (geopolitical, energy, policy, tech, economic, health, social)
+    - Context-aware takeaway templates
+    - Real post quotes as evidence
+    - Sentiment and crisis level classification
+  </Tab>
+</Tabs>
+
+## Emotion Breakdown & Trends
+
+The right panel displays:
+
+### Emotional Breakdown
+A horizontal bar chart showing all 6 emotions with:
+- Color-coded bars (each emotion has a distinct color)
+- Percentage distribution
+- Live data badge showing number of texts analyzed
+- Source attribution (e.g., "📊 Live — 127 texts")
+
+### Sentiment Trend Over Time  
+A line chart visualizing how sentiment has evolved across recent time periods.
+
+## Top Voices / Pointers Panel
+
+This section shows the most frequently mentioned phrases split into:
+
+**Positive Pointers** (green background):
+- Phrases associated with positive sentiment
+- Mention count for each phrase
+- Examples: "holographic display", "take my money", "worth the upgrade"
+
+**Negative Pointers** (red background):  
+- Phrases associated with negative sentiment
+- Mention count for each phrase
+- Examples: "too expensive", "broken promises", "corporate greed"
+
+## Crisis & Alerts Log
+
+When crisis level is **medium** or **high**, you'll see real-time alerts:
+
+<Card title="Negative spike detected" icon="alert-triangle">
+  Displays when negative emotion (anger, fear, sadness) dominates public discourse
+  
+  **Shows**:
+  - Red pulsing indicator
+  - Dominant emotion with context
+  - Timestamp ("Just now", "30 min ago")
+</Card>
+
+<Card title="Sentiment Shift" icon="trending-up">
+  Triggered by sudden increases in conversation volume
+  
+  **Indicates**:
+  - Rapid topic acceleration  
+  - Viral moment or breaking news
+  - Potential crisis escalation
+</Card>
+
+## Data Source Indicators
+
+SENTi-radar displays badges showing which sources were successfully queried:
+
+- ✓ **X via Scrape.do** (green badge) - X posts fetched successfully
+- ✓ **Reddit via Scrape.do** (green badge) - Reddit posts fetched successfully  
+- ⚠️ **Source unavailable** (red badge) - Scrape.do quota exceeded or traffic blocked
+- ℹ️ **VITE_SCRAPE_TOKEN not set** (gray badge) - Scraping disabled, configure token in `.env`
+
+<Tip>
+  To enable X and Reddit scraping, add `VITE_SCRAPE_TOKEN=your_scrape_do_token` to your `.env` file. Get your token at [scrape.do](https://scrape.do).
+</Tip>
+
+## Refreshing the Analysis
+
+To get updated data for the same topic:
+
+1. Click the **Refresh** icon (↻) in the top-right corner of the summary panel
+2. SENTi-radar re-fetches all live sources
+3. Emotions and summary are recalculated with new data
+4. The entire panel updates in 5-10 seconds
+
+<Note>
+  Use this feature when monitoring a developing story or tracking sentiment shifts during live events.
+</Note>
+
+## Troubleshooting
+
+<Accordion title="No emotions showing / stuck on loading">
+  **Possible causes**:
+  - No `VITE_SCRAPE_TOKEN` configured - X and Reddit will be skipped
+  - Scrape.do quota exceeded - wait for quota reset or upgrade plan
+  - No YouTube API key - add `VITE_YOUTUBE_API_KEY` to `.env`
+  - Query too specific - try broader terms
+  
+  **Solution**: Check browser console for error messages and verify environment variables are set correctly.
+</Accordion>
+
+<Accordion title="'Summary error' message appears">
+  This typically happens when:
+  - All data sources fail simultaneously
+  - Network timeout during API calls
+  - Invalid API keys for Gemini or Groq
+  
+  **Solution**: SENTi-radar will automatically fall back to local summary generation. Check your API keys and network connection.
+</Accordion>
+
+<Accordion title="X or Reddit showing as 'unavailable'">
+  **Scrape.do quota exceeded**: You've hit your API limit. Either:
+  - Wait for your quota to reset (usually monthly)
+  - Upgrade your Scrape.do plan
+  - Analysis will continue using YouTube + News sources
+  
+  **Traffic blocked**: The platform detected bot traffic. This is rare with Scrape.do's residential proxies but can happen. Try:
+  - Setting `super: true` in scraping options (uses premium proxies)
+  - Waiting 10-15 minutes before retrying
+</Accordion>
+
+## Best Practices
+
+1. **Use specific queries**: "iPhone 18 battery life" is better than just "phone"
+2. **Monitor volatility**: Topics with high volatility (>80) need frequent refresh
+3. **Check crisis alerts**: Red/yellow alerts indicate urgent public concern
+4. **Compare data sources**: Cross-reference X sentiment with Reddit and YouTube for full picture
+5. **Track trends over time**: Use the sentiment timeline to spot acceleration or decline
+6. **Export for reporting**: Use the Export menu to save analysis data (see [Exporting Data](/guides/exporting-data))
+
+## Related Resources
+
+- [Understanding Metrics](/guides/understanding-metrics) - Deep dive into emotion scoring and sentiment calculation
+- [Exporting Data](/guides/exporting-data) - How to export analysis results as CSV or PDF
+- [Adding Data Sources](/guides/adding-data-sources) - Configure API keys for X, Reddit, YouTube, and more

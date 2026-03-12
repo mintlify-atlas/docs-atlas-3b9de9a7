@@ -1,0 +1,203 @@
+---
+title: 'Getting Started'
+description: 'Set up your local development environment for SENTi-radar'
+---
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+- **Node.js** (v18 or higher)
+- **npm** (v9 or higher)
+- **Git**
+- A code editor (VS Code recommended)
+
+<Note>
+  SENTi-radar is built with Vite + React 18 + TypeScript. Familiarity with these technologies will help you contribute effectively.
+</Note>
+
+## Initial Setup
+
+<Steps>
+  <Step title="Clone the Repository">
+    Clone the SENTi-radar source code to your local machine:
+    
+    ```bash
+    git clone <repository-url>
+    cd senti-radar
+    ```
+  </Step>
+
+  <Step title="Install Dependencies">
+    Install all required npm packages:
+    
+    ```bash
+    npm install
+    ```
+    
+    This will install:
+    - **React 18** and **React Router** for the UI
+    - **shadcn-ui** components built on Radix UI
+    - **TanStack React Query** for data fetching
+    - **Supabase** client for database and edge functions
+    - **Recharts** for sentiment visualizations
+    - **Vitest** and Testing Library for unit tests
+  </Step>
+
+  <Step title="Configure Environment Variables">
+    Copy the example environment file and configure your API keys:
+    
+    ```bash
+    cp .env.example .env
+    ```
+    
+    Edit `.env` and add your credentials:
+    
+    ```bash
+    # Required for database + edge functions
+    VITE_SUPABASE_URL=https://your-project.supabase.co
+    VITE_SUPABASE_PUBLISHABLE_KEY=your-supabase-anon-key
+    
+    # Required for live X/Twitter and Reddit scraping
+    VITE_SCRAPE_TOKEN=your-scrape-do-token
+    
+    # Optional: YouTube comments analysis
+    VITE_YOUTUBE_API_KEY=your-youtube-data-api-key
+    
+    # Optional: AI summaries (falls back to local analysis)
+    VITE_GEMINI_API_KEY=your-gemini-api-key
+    VITE_GROQ_API_KEY=your-groq-api-key
+    ```
+    
+    <Accordion title="Where to get API keys">
+      - **Supabase**: Create a free project at [supabase.com](https://supabase.com)
+      - **Scrape.do**: Get a free API token at [scrape.do](https://scrape.do/)
+      - **YouTube**: Enable YouTube Data API v3 at [Google Cloud Console](https://console.cloud.google.com/)
+      - **Gemini**: Get an API key at [Google AI Studio](https://ai.google.dev/)
+      - **Groq**: Sign up at [Groq Console](https://console.groq.com/)
+    </Accordion>
+  </Step>
+
+  <Step title="Start the Development Server">
+    Launch the local development server:
+    
+    ```bash
+    npm run dev
+    ```
+    
+    The app will be available at `http://localhost:8080`
+    
+    <Note>
+      Hot Module Replacement (HMR) is enabled, so changes to your code will automatically reflect in the browser.
+    </Note>
+  </Step>
+</Steps>
+
+## Available Commands
+
+Here are the key npm scripts you'll use during development:
+
+<CodeGroup>
+  ```bash Development
+  # Start dev server on port 8080
+  npm run dev
+  ```
+
+  ```bash Build
+  # Production build
+  npm run build
+  
+  # Development build (with source maps)
+  npm run build:dev
+  ```
+
+  ```bash Testing
+  # Run all tests once
+  npm run test
+  
+  # Run tests in watch mode
+  npm run test:watch
+  ```
+
+  ```bash Linting
+  # Run ESLint
+  npm run lint
+  ```
+
+  ```bash Preview
+  # Preview production build locally
+  npm run preview
+  ```
+</CodeGroup>
+
+## Supabase Edge Functions
+
+If you're working on backend functionality, you'll need to deploy Supabase Edge Functions:
+
+<Steps>
+  <Step title="Install Supabase CLI">
+    ```bash
+    npm install -g supabase
+    ```
+  </Step>
+
+  <Step title="Set Edge Function Secrets">
+    Configure secrets for the edge functions (never commit these to `.env`):
+    
+    ```bash
+    supabase secrets set SCRAPE_DO_TOKEN=your-token
+    supabase secrets set YOUTUBE_API_KEY=your-key
+    supabase secrets set GEMINI_API_KEY=your-key
+    supabase secrets set SUPABASE_URL=https://your-project.supabase.co
+    supabase secrets set SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+    ```
+  </Step>
+
+  <Step title="Deploy Functions">
+    Deploy individual edge functions:
+    
+    ```bash
+    supabase functions deploy fetch-twitter
+    supabase functions deploy fetch-youtube
+    supabase functions deploy fetch-reddit
+    supabase functions deploy analyze-sentiment
+    supabase functions deploy analyze-topic
+    supabase functions deploy generate-insights
+    supabase functions deploy scheduled-monitor
+    ```
+  </Step>
+</Steps>
+
+## Verify Your Setup
+
+To ensure everything is working correctly:
+
+1. **Check the dev server**: Navigate to `http://localhost:8080` and verify the app loads
+2. **Test authentication**: Try signing up or logging in (requires Supabase)
+3. **Search for a topic**: Enter a search term like "climate change" to test data fetching
+4. **Run tests**: Execute `npm run test` to ensure all unit tests pass
+
+<Accordion title="Troubleshooting Common Issues">
+  **Port 8080 already in use**
+  - Change the port in `vite.config.ts` under `server.port`
+  
+  **Module resolution errors**
+  - Delete `node_modules` and `package-lock.json`, then run `npm install` again
+  - Ensure you're using Node.js v18 or higher
+  
+  **Supabase connection errors**
+  - Verify your `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` are correct
+  - Check your Supabase project is active and not paused
+  
+  **Empty scraping results**
+  - Verify `VITE_SCRAPE_TOKEN` is set correctly
+  - X.com is heavily protected; try enabling `super: true` in scraping options
+</Accordion>
+
+## Next Steps
+
+Now that your environment is set up:
+
+- Review the [Project Structure](/development/project-structure) to understand the codebase
+- Learn about [Testing](/development/testing) to write and run tests
+- Explore the source code in `src/` to familiarize yourself with components and services

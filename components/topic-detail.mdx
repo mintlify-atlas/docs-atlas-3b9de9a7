@@ -1,0 +1,453 @@
+---
+title: 'TopicDetail'
+description: 'Comprehensive topic analytics panel with multi-source data integration and AI-powered summaries'
+---
+
+## Overview
+
+TopicDetail is the primary analytics component that orchestrates real-time sentiment analysis by fetching data from multiple sources (X/Twitter, Reddit, YouTube, Google News), performing emotion analysis, and generating AI-powered narrative summaries.
+
+## Props
+
+<ParamField path="topic" type="TopicCard | null" required>
+  The topic object to analyze. When `null`, the component is hidden.
+  
+  ```typescript
+  interface TopicCard {
+    id: string;
+    title: string;
+    hashtag: string;
+    platform: 'x' | 'youtube' | 'both';
+    sentiment: 'positive' | 'negative' | 'mixed';
+    volume: number;
+    change: number;
+    emotions: EmotionData[];
+    summary: string;
+    keyTakeaways: string[];
+    topPhrases: { phrase: string; count: number }[];
+    crisisLevel: 'none' | 'low' | 'medium' | 'high';
+    volatility: number;
+  }
+  ```
+</ParamField>
+
+<ParamField path="onClose" type="() => void" required>
+  Callback function invoked when the user clicks the close button.
+</ParamField>
+
+## Component Structure
+
+```tsx
+import TopicDetail from '@/components/TopicDetail';
+import type { TopicCard } from '@/lib/mockData';
+
+function App() {
+  const [topic, setTopic] = useState<TopicCard | null>(null);
+
+  return (
+    <TopicDetail
+      topic={topic}
+      onClose={() => setTopic(null)}
+    />
+  );
+}
+```
+
+## Data Sources
+
+TopicDetail fetches from four parallel sources:
+
+### 1. YouTube Data API v3
+
+```typescript
+async function fetchYouTubeComments(query: string): Promise<{ comments: string[]; count: number }>
+```
+
+**Process:**
+1. Search for top 5 relevant videos
+2. Extract video titles and descriptions
+3. Fetch top 25 comments per video (up to 3 videos)
+4. Filter comments (5-500 characters)
+
+**Configuration:**
+```bash
+VITE_YOUTUBE_API_KEY=your_api_key
+```
+
+### 2. Google News RSS
+
+```typescript
+async function fetchNewsHeadlines(query: string): Promise<string[]>
+```
+
+**Process:**
+1. Query Google News RSS feed via Scrape.do proxy
+2. Parse XML for `<item>` elements
+3. Extract and sanitize headlines (15-250 characters)
+4. Return top 10 headlines
+
+**Requires:** `VITE_SCRAPE_TOKEN`
+
+### 3. Scrape.do (X/Twitter & Reddit)
+
+```typescript
+import { fetchAllScrapeDoSources } from '@/services/scrapeDoProvider';
+
+interface ScrapedPost {
+  platform: 'x' | 'reddit';
+  text: string;
+}
+
+interface ScrapeDoResult {
+  source: string;
+  status: 'success' | 'error';
+  posts: ScrapedPost[];
+  error?: string;
+}
+```
+
+**Process:**
+1. Parallel scraping of X and Reddit search results
+2. Post-level extraction with platform metadata
+3. Per-source status tracking (for UI error displays)
+
+**Configuration:**
+```bash
+VITE_SCRAPE_TOKEN=your_scrapedo_token
+```
+
+<Note>
+  **Security Warning:** For production, move `VITE_SCRAPE_TOKEN` to server-side Edge Functions. Client-side tokens are visible in the bundle.
+</Note>
+
+### 4. Emotion Analysis
+
+```typescript
+function scoreEmotions(texts: string[]): EmotionData[]
+```
+
+**Algorithm:**
+1. Concatenate all text sources (headlines, comments, posts)
+2. Match against keyword lexicon for 6 emotions:
+   - **fear:** scared, worried, panic, threat, crisis, etc.
+   - **anger:** angry, outrage, furious, protest, etc.
+   - **sadness:** sad, tragic, loss, grief, etc.
+   - **joy:** happy, excited, amazing, celebrate, etc.
+   - **surprise:** shocking, unexpected, unbelievable, etc.
+   - **disgust:** appalling, corrupt, toxic, sickening, etc.
+3. Calculate percentage distribution
+4. Normalize to sum to 100%
+
+**Returns:**
+```typescript
+interface EmotionData {
+  emotion: Emotion;
+  percentage: number;
+  count: number; // Raw keyword match count
+}
+```
+
+## AI Summary Generation
+
+TopicDetail uses a tiered LLM fallback chain:
+
+### Tier 1: Google Gemini 2.0 Flash
+
+```typescript
+const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${geminiKey}`;
+```
+
+**Config:**
+- Max tokens: 900
+- Temperature: 0.7
+- Streaming: SSE format
+
+### Tier 2: Groq (Llama 3.3 70B)
+
+```typescript
+const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+  body: JSON.stringify({
+    model: 'llama-3.3-70b-versatile',
+    stream: true,
+    max_tokens: 800,
+    temperature: 0.7,
+  }),
+});
+```
+
+### Tier 3: Local Fallback
+
+```typescript
+function buildLocalSummary(topic: TopicCard, analysis: AnalysisResult): string
+```
+
+Guaranteed to work without any API keys. Uses template-based narrative generation with real data injection.
+
+## LLM Prompt Structure
+
+```typescript
+function buildLLMPrompt(topic: TopicCard, analysis: AnalysisResult) {
+  const system = `You are a razor-sharp real-time sentiment analyst. 
+                  You analyze REAL social media posts and news data. 
+                  Be specific and opinionated. Reference "${topic.title}" by name.`;
+  
+  const user = `Analyze public sentiment for "${topic.title}" based on REAL data.
+  
+  SOURCE: ${analysis.dataSource}
+  EMOTION ANALYSIS (from ${analysis.commentCount}+ real texts):
+  - Dominant emotion: ${analysis.dominantEmotion} (${analysis.dominantPct}%)
+  - Second emotion: ${analysis.secondEmotion} (${analysis.secondPct}%)
+  
+  NEWS HEADLINES:
+  ${headlines}
+  
+  X & REDDIT POSTS:
+  ${scrapedPosts}
+  
+  Write this EXACT markdown format:
+  
+  ### [🔴/🟡/🟢/🔵] [Emotion1] & [Emotion2] Dominate – [Risk/Opportunity]
+  
+  [2-3 sentences with real evidence...]
+  
+  **People's Voice – Key Takeaways**
+  • [Insight from real posts]
+  • [Specific concern]
+  • [Emotion stats]
+  • [Forward-looking point]
+  • [Sharp observation]
+  
+  _Live from ${dataSource} | ${time} | ${count}+ discussions_`;
+}
+```
+
+## State Management
+
+```typescript
+const [summary, setSummary] = useState('');
+const [isStreaming, setIsStreaming] = useState(false);
+const [summaryError, setSummaryError] = useState('');
+const [liveEmotions, setLiveEmotions] = useState<EmotionData[] | null>(null);
+const [emotionSource, setEmotionSource] = useState<string>('');
+const [emotionCount, setEmotionCount] = useState(0);
+const [scrapeDoResults, setScrapeDoResults] = useState<ScrapeDoResult[]>([]);
+```
+
+**Flow:**
+
+<Steps>
+  <Step title="Topic Change Detection">
+    ```typescript
+    useEffect(() => {
+      if (!topic || topic.id === prevTopicId.current) return;
+      prevTopicId.current = topic.id;
+      runAnalysis(topic);
+    }, [topic?.id]);
+    ```
+  </Step>
+  <Step title="Reset State">
+    Clear previous data and set loading state
+  </Step>
+  <Step title="Stream Summary">
+    ```typescript
+    streamSummary({
+      topic,
+      onDelta: (chunk) => setSummary(prev => prev + chunk),
+      onDone: () => setIsStreaming(false),
+      onEmotionsReady: (emotions, count, source) => {
+        setLiveEmotions(emotions);
+        setEmotionCount(count);
+        setEmotionSource(source);
+      },
+      onScrapeDoResults: (results) => setScrapeDoResults(results),
+    });
+    ```
+  </Step>
+  <Step title="Display Results">
+    Render live emotions, summary, and visualizations
+  </Step>
+</Steps>
+
+## UI Sections
+
+### Header
+
+```tsx
+<div className="flex items-center justify-between">
+  <div>
+    <h2>{topic.title}</h2>
+    <div className="font-mono text-xs">{topic.hashtag}</div>
+  </div>
+  <button onClick={onClose}>
+    <X className="h-5 w-5" />
+  </button>
+</div>
+```
+
+### Status Indicators
+
+```tsx
+{scrapeDoResults.map((r) => (
+  <span className={r.status === 'success' ? 'bg-green-500/10' : 'bg-destructive/10'}>
+    {r.status === 'success' ? '✓' : <AlertCircle />} {r.source}
+  </span>
+))}
+```
+
+### KPI Cards Grid
+
+```tsx
+<div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+  {/* Overall Sentiment */}
+  <SentimentGauge positive={45} negative={35} neutral={20} />
+  
+  {/* Dominant Emotion */}
+  <div className="text-4xl capitalize">{topEmotion?.emotion}</div>
+  
+  {/* Volume Metrics */}
+  <div className="text-4xl font-mono">{formatVolume(topic.volume)}</div>
+  
+  {/* Volatility */}
+  <div className="text-lg font-bold">{topic.crisisLevel !== 'none' ? 'High' : 'Moderate'}</div>
+</div>
+```
+
+### Summary Panel
+
+```tsx
+<div className="panel p-5">
+  <h4>What People Are Really Saying</h4>
+  {isStreaming && (
+    <span className="text-primary">
+      <Loader2 className="animate-spin" />
+      {liveEmotions ? 'Generating summary…' : 'Fetching X, Reddit, YouTube + News…'}
+    </span>
+  )}
+  <ReactMarkdown>{summary}</ReactMarkdown>
+  {isStreaming && <span className="animate-pulse" />}
+</div>
+```
+
+### Emotion Breakdown
+
+```tsx
+<EmotionBreakdown 
+  emotions={liveEmotions || topic.emotions} 
+  title="" 
+/>
+{liveEmotions && (
+  <span className="text-[9px] bg-primary/10">
+    📊 Live — {emotionCount} texts
+  </span>
+)}
+```
+
+### Sentiment Timeline
+
+```tsx
+<SentimentChart />
+```
+
+## Error Handling
+
+<Tabs>
+  <Tab title="Scrape.do Errors">
+    ```tsx
+    {scrapeDoErrors.map((r) => (
+      <span title={r.error}>
+        <AlertCircle /> {r.source} unavailable
+      </span>
+    ))}
+    ```
+  </Tab>
+  <Tab title="Missing Token">
+    ```tsx
+    {!hasScrapeDoToken && (
+      <div className="bg-muted/40">
+        <AlertCircle />
+        <strong>VITE_SCRAPE_TOKEN</strong> not set — scraping disabled.
+      </div>
+    )}
+    ```
+  </Tab>
+  <Tab title="Summary Errors">
+    ```tsx
+    {summaryError ? (
+      <p className="text-destructive">Summary error: {summaryError}</p>
+    ) : null}
+    ```
+  </Tab>
+</Tabs>
+
+## Theme Detection
+
+TopicDetail uses automatic theme-based template selection:
+
+```typescript
+const TOPIC_THEMES: Record<string, { keywords: string[]; templates: string[] }> = {
+  geopolitical: {
+    keywords: ['war', 'tension', 'iran', 'russia', 'nato', 'missile'],
+    templates: [
+      'Escalation fears are driving market volatility...',
+      'Diplomatic channels remain under pressure...'
+    ]
+  },
+  energy: {
+    keywords: ['oil', 'gas', 'fuel', 'opec', 'shortage'],
+    templates: [
+      'Fuel price hikes are the #1 concern...',
+      'Energy security is being questioned...'
+    ]
+  },
+  // ... tech, economic, health, social, policy
+};
+```
+
+## Refresh Behavior
+
+```tsx
+const regenerateSummary = () => {
+  if (!topic || isStreaming) return;
+  prevTopicId.current = null; // Force re-analysis
+  runAnalysis(topic);
+};
+
+<button onClick={regenerateSummary} disabled={isStreaming}>
+  {isStreaming ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+</button>
+```
+
+## Performance Considerations
+
+- **Parallel Fetching:** All 4 data sources are fetched simultaneously using `Promise.allSettled`
+- **Debouncing:** `useRef` prevents duplicate analysis for the same topic ID
+- **Streaming:** LLM responses stream incrementally for perceived speed
+- **Fallback Chain:** Guaranteed response even if all APIs fail
+
+## Example: Custom Theme Integration
+
+```typescript
+// Add a new topic theme
+const TOPIC_THEMES = {
+  ...existingThemes,
+  crypto: {
+    keywords: ['bitcoin', 'ethereum', 'crypto', 'blockchain', 'nft'],
+    templates: [
+      'Price volatility dominates crypto discussions — traders watching key support levels',
+      'Regulatory uncertainty is a recurring concern across major markets',
+      'Community sentiment shifts rapidly based on influencer commentary',
+    ]
+  }
+};
+```
+
+## Related Components
+
+<CardGroup cols={2}>
+  <Card title="SentimentGauge" icon="gauge" href="/components/sentiment-gauge">
+    Polarity visualization
+  </Card>
+  <Card title="EmotionBreakdown" icon="chart-bar" href="/components/emotion-breakdown">
+    Emotion distribution
+  </Card>
+</CardGroup>

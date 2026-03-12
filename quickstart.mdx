@@ -1,80 +1,259 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: "Get SENTi-radar up and running in 5 minutes"
 ---
 
-## Get started in three steps
+Get your SENTi-radar instance running and perform your first sentiment analysis in just a few steps.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Before you begin, ensure you have:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+- Node.js 18+ installed
+- npm, yarn, or bun package manager
+- A Supabase account (free tier works)
+- (Optional) A Scrape.do account for live social media data
 
-### Step 2: Deploy your changes
+## Installation
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+<Steps>
+  <Step title="Clone the Repository">
+    Clone the SENTi-radar repository to your local machine:
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    ```bash
+    git clone https://github.com/Yashviit886/SENTi-radar.git
+    cd SENTi-radar
+    ```
+  </Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Install Dependencies">
+    Install all required packages:
 
-### Step 3: Go live
+    <CodeGroup>
+    ```bash npm
+    npm install
+    ```
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    ```bash yarn
+    yarn install
+    ```
 
-## Next steps
+    ```bash bun
+    bun install
+    ```
+    </CodeGroup>
+  </Step>
 
-Now that you have your docs running, explore these key features:
+  <Step title="Set Up Environment Variables">
+    Copy the example environment file and configure your credentials:
 
-<CardGroup cols={2}>
+    ```bash
+    cp .env.example .env
+    ```
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+    Edit `.env` and add your Supabase credentials (required):
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+    ```bash .env
+    VITE_SUPABASE_URL=https://your-project.supabase.co
+    VITE_SUPABASE_PUBLISHABLE_KEY=your-supabase-anon-key
+    ```
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
+    <Note>
+      **Minimum Configuration**: Only Supabase credentials are required to start. You can add Scrape.do, YouTube, and AI service keys later for full functionality.
+    </Note>
+  </Step>
 
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
+  <Step title="Set Up Supabase Database">
+    Run the database migration to create all required tables:
 
-</CardGroup>
+    1. Go to your Supabase project dashboard
+    2. Navigate to **SQL Editor**
+    3. Copy the contents of `supabase/migrations/FULL_MIGRATION_RUN_IN_DASHBOARD.sql`
+    4. Paste and execute the SQL
+
+    This creates tables for topics, posts, sentiment stats, alerts, and more.
+  </Step>
+
+  <Step title="Start the Development Server">
+    Launch the local development server:
+
+    ```bash
+    npm run dev
+    ```
+
+    The app will be available at `http://localhost:8080`
+  </Step>
+</Steps>
+
+## Your First Analysis
+
+Now let's analyze a topic to see SENTi-radar in action:
+
+<Steps>
+  <Step title="Open the Dashboard">
+    Navigate to `http://localhost:8080` in your browser. You'll see the main dashboard with a search bar.
+  </Step>
+
+  <Step title="Search for a Topic">
+    Enter a topic, hashtag, or brand name in the search bar. For example:
+
+    - `climate change`
+    - `#tech`
+    - `iPhone 15`
+
+    Click **Analyze** or press Enter.
+  </Step>
+
+  <Step title="Wait for Analysis">
+    The system will:
+    - Fetch posts from available sources (YouTube by default, X/Reddit if Scrape.do is configured)
+    - Analyze emotions using keyword-based classification
+    - Generate an AI summary (if Gemini/Groq API keys are configured, otherwise uses local analysis)
+    - Calculate sentiment scores and crisis levels
+
+    This typically takes 5-15 seconds.
+  </Step>
+
+  <Step title="Review Results">
+    Once complete, you'll see:
+    - **Sentiment Gauge**: Overall positive/negative/mixed sentiment (-100 to +100)
+    - **Emotion Breakdown**: Distribution across 6 emotions (joy, anger, sadness, fear, surprise, disgust)
+    - **AI Insights**: Strategic summary with key takeaways
+    - **Live Feed**: Recent posts with sentiment labels
+    - **Crisis Alerts**: Any detected spikes or volatility warnings
+  </Step>
+</Steps>
+
+## Add Live Data Sources
+
+To unlock full functionality with real-time social media scraping:
+
+### Scrape.do (Recommended)
+
+Get live X (Twitter) and Reddit data:
+
+1. Sign up at [scrape.do](https://scrape.do/) (free tier available)
+2. Get your API token from the dashboard
+3. Add to `.env`:
+
+```bash .env
+VITE_SCRAPE_TOKEN=your-scrape-do-token
+```
+
+4. Restart the dev server
+
+<Info>
+  Scrape.do provides residential proxies and JavaScript rendering for reliable scraping. See [Scrape.do Integration](/setup/scrape-do-integration) for advanced configuration.
+</Info>
+
+### YouTube Data API
+
+Enable YouTube comment analysis:
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a project and enable YouTube Data API v3
+3. Create an API key
+4. Add to `.env`:
+
+```bash .env
+VITE_YOUTUBE_API_KEY=your-youtube-api-key
+```
+
+### AI Services (Optional)
+
+Add Gemini or Groq for enhanced AI summaries:
+
+<Tabs>
+  <Tab title="Gemini (Google)">
+    ```bash .env
+    VITE_GEMINI_API_KEY=your-gemini-api-key
+    ```
+
+    Get a key at [Google AI Studio](https://ai.google.dev/)
+  </Tab>
+  <Tab title="Groq (Secondary)">
+    ```bash .env
+    VITE_GROQ_API_KEY=your-groq-api-key
+    ```
+
+    Get a key at [Groq Console](https://console.groq.com/)
+  </Tab>
+</Tabs>
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  **Fallback**: If no AI keys are configured, SENTi-radar uses a local keyword-based summary generator as a fallback.
 </Note>
+
+## Deploy Supabase Edge Functions (Optional)
+
+For production use, deploy the backend edge functions:
+
+```bash
+# Login to Supabase CLI
+npx supabase login
+
+# Link your project
+npx supabase link --project-ref your-project-ref
+
+# Deploy all functions
+npx supabase functions deploy fetch-twitter
+npx supabase functions deploy fetch-youtube
+npx supabase functions deploy analyze-sentiment
+npx supabase functions deploy analyze-topic
+npx supabase functions deploy generate-insights
+npx supabase functions deploy scheduled-monitor
+```
+
+Set your secrets:
+
+```bash
+npx supabase secrets set SCRAPE_DO_TOKEN=your-token
+npx supabase secrets set YOUTUBE_API_KEY=your-key
+npx supabase secrets set GEMINI_API_KEY=your-key
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Build errors or missing dependencies">
+    Clear cache and reinstall:
+
+    ```bash
+    rm -rf node_modules package-lock.json
+    npm install
+    ```
+  </Accordion>
+
+  <Accordion title="Supabase connection errors">
+    Verify your `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` are correct. Check that you've run the database migration.
+  </Accordion>
+
+  <Accordion title="No posts found">
+    - If using Scrape.do, verify your token is valid and has remaining credits
+    - Try a different topic (some topics may have limited content)
+    - Enable YouTube API for broader coverage
+  </Accordion>
+
+  <Accordion title="AI summary not generating">
+    - Verify Gemini/Groq API keys are correct
+    - Check API quotas haven't been exceeded
+    - The local fallback should generate a basic summary even without AI keys
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture Overview" icon="sitemap" href="/architecture">
+    Understand how the system works
+  </Card>
+  <Card title="Environment Variables" icon="gear" href="/setup/environment-variables">
+    Complete configuration reference
+  </Card>
+  <Card title="Analyzing Topics" icon="magnifying-glass-chart" href="/guides/analyzing-topics">
+    Learn advanced analysis techniques
+  </Card>
+  <Card title="Deployment Guide" icon="rocket" href="/deployment/overview">
+    Deploy to production
+  </Card>
+</CardGroup>

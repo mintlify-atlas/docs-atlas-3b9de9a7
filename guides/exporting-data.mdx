@@ -1,0 +1,447 @@
+---
+title: Exporting Data
+description: Learn how to export sentiment analysis reports in CSV and PDF formats for sharing and external analysis
+---
+
+## Overview
+
+SENTi-radar allows you to export comprehensive sentiment analysis reports in two formats: **CSV** (for spreadsheet analysis) and **PDF** (for presentations and sharing). Exports include all dashboard data: topics, emotions, timelines, live feed, and statistics.
+
+<Note>
+  Exported reports capture a snapshot of your current dashboard state at the moment of export.
+</Note>
+
+## Accessing the Export Menu
+
+<Steps>
+  <Step title="Locate the Export button">
+    The **Export** button is located in the top-right corner of the dashboard, near the theme toggle and other controls. It has a download icon (⬇) and the text "Export".
+  </Step>
+
+  <Step title="Click the Export button">
+    A popover menu appears with two options:
+    - **Export as CSV** (spreadsheet icon)
+    - **Export as PDF** (document icon)
+  </Step>
+
+  <Step title="Select your format">
+    Click either option to immediately download the report. The file will be saved to your default downloads folder with a timestamped filename:
+    - `sentiment-report-2026-03-12.csv`
+    - `sentiment-report-2026-03-12.pdf`
+  </Step>
+</Steps>
+
+<Tip>
+  You'll see a toast notification confirming "Report exported" with the format type, or "Export failed" if an error occurred.
+</Tip>
+
+## CSV Export Format
+
+The CSV export is structured into **five sections**, each with its own header and table:
+
+### Section 1: Dashboard Summary
+
+Basic statistics about your current monitoring session.
+
+```csv
+=== Dashboard Summary ===
+Metric,Value
+Posts Analyzed,15420
+Active Topics,8
+Active Alerts,3
+```
+
+**Fields**:
+- **Posts Analyzed**: Total number of posts/comments/headlines processed
+- **Active Topics**: Number of topics currently in the dashboard
+- **Active Alerts**: Number of active crisis alerts
+
+### Section 2: Topics Overview
+
+Detailed information about each topic being monitored.
+
+```csv
+=== Topics ===
+Title,Hashtag,Sentiment,Volume,Change %,Crisis Level,Volatility,Summary
+"AI Regulation Debate",#AIRegulation,mixed,284500,42,medium,72,"35% fear, 28% anger → Main concerns: job displacement (48% mentions)..."
+"Climate Summit 2026",#ClimateSummit2026,negative,192300,-15,high,85,"42% anger, 25% sadness → Key frustrations: broken promises (55%)..."
+```
+
+**Fields**:
+- **Title**: Topic name
+- **Hashtag**: Associated hashtag
+- **Sentiment**: positive, negative, or mixed
+- **Volume**: Total mention count
+- **Change %**: Hourly change percentage (+ or -)
+- **Crisis Level**: none, low, medium, or high
+- **Volatility**: Score from 0-100
+- **Summary**: AI-generated summary (CSV-escaped for commas/quotes)
+
+<Accordion title="CSV Escaping Rules">
+  SENTi-radar automatically escapes special characters:
+  
+  ```typescript
+  function escapeCSV(val: string | number): string {
+    const s = String(val);
+    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  }
+  ```
+  
+  - Fields with commas are wrapped in double quotes
+  - Double quotes are escaped as `""`
+  - Newlines are preserved within quoted fields
+</Accordion>
+
+### Section 3: Emotion Breakdown
+
+Emotion percentages and counts for each topic.
+
+```csv
+=== Emotion Breakdown ===
+Topic,Emotion,Percentage,Count
+"AI Regulation Debate",fear,35,99575
+"AI Regulation Debate",anger,28,79660
+"AI Regulation Debate",surprise,18,51210
+"Climate Summit 2026",anger,42,80766
+"Climate Summit 2026",sadness,25,48075
+```
+
+**Fields**:
+- **Topic**: Topic title
+- **Emotion**: fear, anger, sadness, joy, surprise, or disgust
+- **Percentage**: Emotion's percentage of total (0-100)
+- **Count**: Absolute keyword match count
+
+<Tip>
+  Use Excel or Google Sheets pivot tables to analyze emotion distribution across topics.
+</Tip>
+
+### Section 4: Sentiment Timeline
+
+Historical sentiment data points (if available).
+
+```csv
+=== Sentiment Timeline ===
+Time,Positive %,Negative %,Neutral %,Volume
+02:00,45,35,20,8420
+03:00,42,38,20,9130
+04:00,38,42,20,12340
+```
+
+**Fields**:
+- **Time**: Timestamp (HH:MM format)
+- **Positive %**: Percentage of positive sentiment
+- **Negative %**: Percentage of negative sentiment
+- **Neutral %**: Percentage of neutral sentiment
+- **Volume**: Conversation volume at this time point
+
+### Section 5: Live Feed
+
+Recent social media posts captured by the monitoring system.
+
+```csv
+=== Live Feed ===
+Platform,User,Emotion,Time,Text
+x,@techinsider,anger,2m ago,"The AI regulation debate is heating up. Both sides make valid points but we need action NOW. #AIRegulation"
+youtube,TechReviewer,joy,5m ago,"Hands-on with iPhone 18 holographic display - this changes everything! Link in bio 🔥"
+```
+
+**Fields**:
+- **Platform**: x, youtube, reddit, or web
+- **User**: Username/handle (CSV-escaped)
+- **Emotion**: Detected emotion
+- **Time**: Relative timestamp ("2m ago", "5m ago")
+- **Text**: Full post text (CSV-escaped)
+
+## PDF Export Format
+
+The PDF export creates a professional landscape-oriented report with multiple tables and sections:
+
+### Page 1: Overview & Topics
+
+**Header Section**:
+- Title: "Sentiment Analysis Report" (20pt bold)
+- Generated timestamp: "Generated: 3/12/2026, 10:30:45 AM" (10pt gray)
+
+**Dashboard Summary Table**:
+- 3-row table with purple header (`#4F46E5`)
+- Columns: Metric, Value
+- Striped theme for readability
+
+**Topics Overview Table**:
+- 7-column table with purple header
+- Columns: Title, Hashtag, Sentiment, Volume, Change, Crisis, Volatility
+- Change column shows `+42%` or `-15%` formatting
+- 9pt font for compact display
+
+### Page 2: Emotion Breakdown
+
+**Emotion Breakdown Table**:
+- 4-column table
+- Columns: Topic, Emotion, Percentage, Count
+- One row per emotion per topic (typically 6 emotions × N topics)
+- Percentage column formatted as `35%`
+- Striped theme
+
+### Page 3+: AI Summaries
+
+**Detailed Summaries Section**:
+- Each topic gets its own summary block
+- **Topic header** (10pt purple): "AI Regulation Debate (#AIRegulation)"
+- **Summary text** (9pt dark gray): Full AI-generated summary with automatic text wrapping
+- Auto-pagination if summaries exceed page height
+
+<Note>
+  PDFs are generated using `jsPDF` with the `autoTable` plugin for professional table formatting.
+</Note>
+
+## Implementation Details
+
+The export functionality is powered by two utility functions in `src/lib/exportUtils.ts`:
+
+### CSV Export Function
+
+```typescript
+export function exportCSV(data: ExportData) {
+  const lines: string[] = [];
+  
+  // Build sections
+  lines.push('=== Dashboard Summary ===');
+  lines.push('Metric,Value');
+  lines.push(`Posts Analyzed,${data.stats.postCount}`);
+  // ... more sections
+  
+  const blob = new Blob([lines.join('\n')], { 
+    type: 'text/csv;charset=utf-8;' 
+  });
+  downloadBlob(blob, `sentiment-report-${dateStamp()}.csv`);
+}
+```
+
+### PDF Export Function
+
+```typescript
+export function exportPDF(data: ExportData) {
+  const doc = new jsPDF({ orientation: 'landscape' });
+  
+  // Title
+  doc.setFontSize(20);
+  doc.text('Sentiment Analysis Report', 14, 20);
+  
+  // Tables
+  autoTable(doc, {
+    startY: 44,
+    head: [['Metric', 'Value']],
+    body: [[...],],
+    theme: 'striped',
+    headStyles: { fillColor: [79, 70, 229] },
+  });
+  
+  doc.save(`sentiment-report-${dateStamp()}.pdf`);
+}
+```
+
+<Accordion title="Export Data Interface">
+  ```typescript
+  interface ExportData {
+    topics: TopicCard[];
+    timeline: TimelinePoint[];
+    feed: FeedItem[];
+    stats: { 
+      postCount: number; 
+      topicCount: number; 
+      alertCount: number 
+    };
+  }
+  ```
+  
+  Data is sourced from:
+  - `useTopics()` hook → Real-time topic data from Supabase
+  - `useSentimentTimeline()` hook → Historical sentiment data
+  - `useLiveFeed()` hook → Recent social media posts
+  - `useStats()` hook → Aggregate statistics
+  
+  If database queries return no data, the export falls back to mock data (`trendingTopics`, `generateTrendData()`).
+</Accordion>
+
+## Data Sources in Exports
+
+The `ExportMenu` component (`src/components/ExportMenu.tsx`) determines data sources:
+
+```typescript
+const getExportData = () => {
+  const topics = dbTopics && dbTopics.length > 0 
+    ? dbTopics 
+    : trendingTopics; // Fallback to mock data
+  
+  const timelineData = timeline && timeline.length > 0 
+    ? timeline 
+    : generateTrendData(24); // Generate 24 hours of mock data
+  
+  return {
+    topics,
+    timeline: timelineData,
+    feed: feed || [],
+    stats: stats || { postCount: 0, topicCount: 0, alertCount: 0 },
+  };
+};
+```
+
+<Tabs>
+  <Tab title="With Database">
+    If Supabase is configured and contains data:
+    - **Topics**: Live data from `topics` table
+    - **Timeline**: Historical sentiment data from `sentiment_timeline` table
+    - **Feed**: Recent posts from `feed` table
+    - **Stats**: Real-time aggregated counts
+  </Tab>
+  
+  <Tab title="Without Database">
+    If Supabase is not configured or empty:
+    - **Topics**: 4 demo topics from `mockData.ts` (AI Regulation, Climate Summit, iPhone, Food Prices)
+    - **Timeline**: 24 hours of generated trend data
+    - **Feed**: 6 sample posts
+    - **Stats**: Calculated from mock data
+  </Tab>
+</Tabs>
+
+## Use Cases
+
+### CSV Exports Are Best For:
+
+- **Data Analysis**: Import into Excel, Google Sheets, or R/Python for advanced analytics
+- **Custom Visualizations**: Create your own charts and graphs
+- **Database Import**: Load into SQL databases or data warehouses
+- **Trend Tracking**: Compare exports over time to identify long-term patterns
+- **API Integration**: Parse CSV in automated workflows
+
+### PDF Exports Are Best For:
+
+- **Executive Reports**: Share with stakeholders who need visual summaries
+- **Client Deliverables**: Professional-looking reports for external clients
+- **Presentations**: Embed in slide decks or print for meetings
+- **Documentation**: Archive snapshots of sentiment at key moments
+- **Email Sharing**: Send to non-technical team members
+
+## Troubleshooting
+
+<Accordion title="Export button is grayed out or doesn't work">
+  **Possible causes**:
+  - No topics currently loaded in the dashboard
+  - JavaScript error in the export utility
+  - Browser blocking downloads
+  
+  **Solutions**:
+  1. Refresh the page and wait for topics to load
+  2. Check browser console for errors
+  3. Allow downloads in browser settings (check for popup blocker)
+  4. Try the other export format (CSV vs PDF)
+</Accordion>
+
+<Accordion title="CSV opens with garbled text or encoding issues">
+  The CSV is exported with UTF-8 encoding. If you see garbled characters:
+  
+  **In Excel**:
+  1. Don't double-click the CSV
+  2. Open Excel → Data tab → Get Data → From Text/CSV
+  3. Select the file → Choose UTF-8 encoding → Load
+  
+  **In Google Sheets**:
+  1. File → Import → Upload → Select file
+  2. Import location: Replace spreadsheet
+  3. Separator type: Comma
+  4. Character encoding: UTF-8
+</Accordion>
+
+<Accordion title="PDF tables are cut off or overlap">
+  This can happen with very long topic titles or summaries.
+  
+  **Workarounds**:
+  - Export as CSV instead and create custom PDF from Excel/Sheets
+  - Edit topic titles to be shorter before exporting
+  - Use landscape orientation (already default)
+  
+  The PDF generator uses `jsPDF` automatic text wrapping (`splitTextToSize()`) which should handle most cases, but extremely long single words may cause issues.
+</Accordion>
+
+<Accordion title="Export doesn't include my latest topics">
+  The export captures the **current state** of the dashboard when you click Export.
+  
+  **Check**:
+  - Are the topics visible on your dashboard?
+  - Have you analyzed them (not just searched)?
+  - Are they stored in the database or just in component state?
+  
+  **Solution**: Analyze all desired topics first, ensure they appear in the dashboard, then export.
+</Accordion>
+
+## Automating Exports
+
+While SENTi-radar doesn't currently support scheduled exports, you can build automation using the existing code:
+
+<Steps>
+  <Step title="Create an API endpoint">
+    Add a Supabase Edge Function or API route that calls `exportCSV()` or `exportPDF()` server-side.
+  </Step>
+  
+  <Step title="Schedule with cron">
+    Use a service like GitHub Actions, Vercel Cron, or AWS EventBridge to trigger the endpoint:
+    - Daily at midnight
+    - Hourly during crisis monitoring
+    - On-demand via webhook
+  </Step>
+  
+  <Step title="Store or email results">
+    Send exports to:
+    - S3/Cloud Storage for archival
+    - Email stakeholders via SendGrid/Resend
+    - Slack channel via webhook
+  </Step>
+</Steps>
+
+<Tip>
+  For high-frequency exports (every 5 minutes during live events), consider using the CSV format to reduce file size and generation time.
+</Tip>
+
+## Custom Export Fields
+
+To add custom fields to exports, modify `src/lib/exportUtils.ts`:
+
+### Adding a New CSV Section
+
+```typescript
+// In exportCSV function, after existing sections:
+lines.push('=== Top Phrases ===');
+lines.push('Topic,Phrase,Count');
+data.topics.forEach((t) => {
+  t.topPhrases.forEach((p) => {
+    lines.push([escapeCSV(t.title), escapeCSV(p.phrase), p.count].join(','));
+  });
+});
+```
+
+### Adding a New PDF Table
+
+```typescript
+// In exportPDF function, before final save:
+const phrasesY = (doc as any).lastAutoTable?.finalY + 10 || 200;
+doc.text('Top Phrases', 14, phrasesY);
+autoTable(doc, {
+  startY: phrasesY + 4,
+  head: [['Topic', 'Phrase', 'Count']],
+  body: data.topics.flatMap(t => 
+    t.topPhrases.map(p => [t.title, p.phrase, String(p.count)])
+  ),
+  theme: 'striped',
+  headStyles: { fillColor: [79, 70, 229] },
+});
+```
+
+## Related Resources
+
+- [Analyzing Topics](/guides/analyzing-topics) - How to generate data to export
+- [Understanding Metrics](/guides/understanding-metrics) - Interpret exported emotion and sentiment data
+- [Adding Data Sources](/guides/adding-data-sources) - Improve export quality with more data sources

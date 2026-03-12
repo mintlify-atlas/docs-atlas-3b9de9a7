@@ -1,0 +1,515 @@
+---
+title: Edge Functions Deployment
+description: Deploy Supabase edge functions for data scraping and sentiment analysis
+---
+
+SENTi-radar uses Supabase Edge Functions (powered by Deno) to handle data scraping, sentiment analysis, and topic orchestration. This guide covers deploying all edge functions to production.
+
+## Edge Functions Overview
+
+The platform includes 7 edge functions:
+
+<CardGroup cols={2}>
+  <Card title="analyze-sentiment" icon="brain">
+    Analyzes post sentiment using Gemini AI or keyword fallback
+  </Card>
+  
+  <Card title="analyze-topic" icon="diagram-project">
+    Orchestrates topic creation and data fetching workflow
+  </Card>
+  
+  <Card title="fetch-twitter" icon="x-twitter">
+    Scrapes X (Twitter) posts via Scrape.do
+  </Card>
+  
+  <Card title="fetch-reddit" icon="reddit">
+    Scrapes Reddit posts via Scrape.do JSON API
+  </Card>
+  
+  <Card title="fetch-youtube" icon="youtube">
+    Fetches YouTube video comments via YouTube Data API
+  </Card>
+  
+  <Card title="generate-insights" icon="lightbulb">
+    Generates AI-powered insights and summaries
+  </Card>
+  
+  <Card title="scheduled-monitor" icon="clock">
+    Background job for monitoring topics and generating alerts
+  </Card>
+</CardGroup>
+
+## Prerequisites
+
+<Steps>
+  <Step title="Supabase CLI installed">
+    ```bash
+    npm install -g supabase
+    ```
+  </Step>
+  
+  <Step title="Supabase project created">
+    Create a project at [supabase.com](https://supabase.com)
+  </Step>
+  
+  <Step title="Link local project to Supabase">
+    ```bash
+    supabase link --project-ref your-project-id
+    ```
+  </Step>
+  
+  <Step title="Environment secrets ready">
+    See [Environment & Secrets](/deployment/environment-secrets) for required API keys
+  </Step>
+</Steps>
+
+## Function Configuration
+
+Edge functions are configured in `supabase/config.toml`:
+
+```toml supabase/config.toml
+project_id = "owrqiailcuwlzxeekhms"
+
+[functions.analyze-sentiment]
+verify_jwt = false
+
+[functions.fetch-twitter]
+verify_jwt = false
+
+[functions.fetch-youtube]
+verify_jwt = false
+
+[functions.analyze-topic]
+verify_jwt = false
+
+[functions.scheduled-monitor]
+verify_jwt = false
+
+[functions.generate-insights]
+verify_jwt = false
+
+[auth]
+site_url = "http://localhost:5173"
+email_confirm_by_default = false
+```
+
+<Warning>
+  `verify_jwt = false` allows public access to edge functions. For production, consider enabling JWT verification and passing authenticated requests from the frontend.
+</Warning>
+
+## Deploying Edge Functions
+
+### Deploy All Functions
+
+Deploy all edge functions at once:
+
+```bash
+supabase functions deploy --project-ref your-project-id
+```
+
+### Deploy Individual Functions
+
+Deploy specific functions:
+
+<CodeGroup>
+```bash Sentiment Analysis
+supabase functions deploy analyze-sentiment
+```
+
+```bash Topic Orchestrator
+supabase functions deploy analyze-topic
+```
+
+```bash Twitter Scraper
+supabase functions deploy fetch-twitter
+```
+
+```bash Reddit Scraper
+supabase functions deploy fetch-reddit
+```
+
+```bash YouTube Fetcher
+supabase functions deploy fetch-youtube
+```
+
+```bash Insights Generator
+supabase functions deploy generate-insights
+```
+
+```bash Scheduled Monitor
+supabase functions deploy scheduled-monitor
+```
+</CodeGroup>
+
+### Deployment with Secrets
+
+Set secrets before deploying:
+
+```bash
+# Set all required secrets
+supabase secrets set SCRAPE_DO_TOKEN=your-scrape-do-token
+supabase secrets set YOUTUBE_API_KEY=your-youtube-key
+supabase secrets set GEMINI_API_KEY=your-gemini-key
+supabase secrets set SUPABASE_URL=https://your-project.supabase.co
+supabase secrets set SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+
+# Deploy functions
+supabase functions deploy
+```
+
+<Note>
+  Secrets are encrypted and stored securely in Supabase. They are accessible via `Deno.env.get()` within edge functions.
+</Note>
+
+## Function Architecture
+
+### analyze-sentiment
+
+**Purpose**: Analyzes sentiment and emotions of social media posts
+
+**Flow**:
+1. Fetches unanalyzed posts for a topic
+2. Sends posts to Gemini AI for sentiment analysis
+3. Falls back to keyword-based analysis if Gemini fails
+4. Updates posts with sentiment scores
+5. Computes aggregate statistics
+6. Generates AI summary and key takeaways
+7. Creates crisis alerts if negative sentiment is high
+
+**Key Dependencies**:
+- `GEMINI_API_KEY` (optional, falls back to keywords)
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+**Code Example**:
+```typescript supabase/functions/analyze-sentiment/index.ts
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+serve(async (req) => {
+  const { topic_id } = await req.json();
+  
+  // Fetch unanalyzed posts
+  const { data: posts } = await supabase
+    .from("posts")
+    .select("*")
+    .eq("topic_id", topic_id)
+    .is("sentiment", null)
+    .limit(50);
+  
+  // Analyze with Gemini or fallback
+  const analysisResults = await callGemini(apiKey, posts);
+  
+  // Update database with sentiment scores
+  // ...
+});
+```
+
+### fetch-twitter
+
+**Purpose**: Scrapes X (Twitter) posts and Reddit discussions via Scrape.do
+
+**Flow**:
+1. Receives topic query
+2. Builds Scrape.do API request for X search
+3. Parses rendered HTML to extract tweet text
+4. Fetches Reddit posts via JSON API
+5. Falls back to Parallel.ai, then YouTube, then algorithmic generation
+6. Persists posts to database
+
+**Key Dependencies**:
+- `SCRAPE_DO_TOKEN` (required for live data)
+- `PARALLEL_API_KEY` (optional fallback)
+- `YOUTUBE_API_KEY` (optional fallback)
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+**Scrape.do Configuration**:
+```typescript
+const scrapeUrl = buildScrapeDoUrl(token, targetUrl, {
+  render: true,           // Enable JavaScript rendering
+  super: true,            // Use residential proxies
+  waitUntil: 'networkidle0', // Wait for page to fully load
+  geoCode: 'us'          // US-based results
+});
+```
+
+### analyze-topic
+
+**Purpose**: Orchestrates the entire topic analysis workflow
+
+**Flow**:
+1. Creates or retrieves topic from database
+2. Calls `fetch-twitter` to scrape X and Reddit
+3. Calls `fetch-reddit` for additional Reddit data
+4. Calls `fetch-youtube` for video comments
+5. Calls `analyze-sentiment` to analyze all posts
+6. Returns aggregated results
+
+**Key Dependencies**:
+- All dependencies from called functions
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+**Code Example**:
+```typescript supabase/functions/analyze-topic/index.ts
+serve(async (req) => {
+  const { query, title, hashtag } = await req.json();
+  
+  // Create topic
+  const { data: topic } = await supabase
+    .from("topics")
+    .insert({ title, query, hashtag })
+    .select()
+    .single();
+  
+  // Orchestrate data fetching
+  const [twitterResult, redditResult, youtubeResult] = await Promise.all([
+    fetch(`${supabaseUrl}/functions/v1/fetch-twitter`, {
+      method: "POST",
+      body: JSON.stringify({ topic_id: topic.id })
+    }),
+    fetch(`${supabaseUrl}/functions/v1/fetch-reddit`, { ... }),
+    fetch(`${supabaseUrl}/functions/v1/fetch-youtube`, { ... })
+  ]);
+  
+  // Analyze sentiment
+  await fetch(`${supabaseUrl}/functions/v1/analyze-sentiment`, {
+    body: JSON.stringify({ topic_id: topic.id })
+  });
+});
+```
+
+## Testing Edge Functions
+
+### Local Testing
+
+Run functions locally with Supabase CLI:
+
+<Steps>
+  <Step title="Start Supabase local development">
+    ```bash
+    supabase start
+    ```
+  </Step>
+  
+  <Step title="Serve edge functions locally">
+    ```bash
+    supabase functions serve
+    ```
+  </Step>
+  
+  <Step title="Test with curl">
+    ```bash
+    curl -X POST http://localhost:54321/functions/v1/analyze-topic \
+      -H "Content-Type: application/json" \
+      -d '{"query": "climate change", "title": "Climate Change Discussion"}'
+    ```
+  </Step>
+</Steps>
+
+### Production Testing
+
+Test deployed functions:
+
+```bash
+curl -X POST https://your-project.supabase.co/functions/v1/analyze-topic \
+  -H "Authorization: Bearer YOUR_ANON_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "test topic", "title": "Test Topic"}'
+```
+
+## Monitoring & Logs
+
+### View Function Logs
+
+View real-time logs:
+
+```bash
+supabase functions logs analyze-sentiment --follow
+```
+
+View logs for all functions:
+
+```bash
+supabase functions logs --follow
+```
+
+### Check Function Status
+
+List all deployed functions:
+
+```bash
+supabase functions list
+```
+
+## Error Handling
+
+All edge functions include comprehensive error handling:
+
+```typescript
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+  
+  try {
+    // Function logic
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
+  } catch (error) {
+    console.error("Function error:", error);
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error"
+      }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      }
+    );
+  }
+});
+```
+
+## CORS Configuration
+
+All functions include CORS headers for cross-origin requests:
+
+```typescript
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type"
+};
+```
+
+<Warning>
+  For production, restrict `Access-Control-Allow-Origin` to your frontend domain instead of `"*"`.
+</Warning>
+
+## Performance Optimization
+
+### Caching Strategies
+
+1. **Database-level caching**: Use Supabase's built-in query caching
+2. **Function-level caching**: Implement TTL-based caching for API responses
+3. **Client-side caching**: Use React Query's stale-while-revalidate pattern
+
+### Parallel Processing
+
+Functions use parallel fetching where possible:
+
+```typescript
+const [xResult, redditResult] = await Promise.allSettled([
+  fetch(buildScrapeDoUrl(token, xUrl)),
+  fetch(buildScrapeDoUrl(token, redditUrl))
+]);
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Function returns 500 error">
+    **Cause**: Missing environment variables or invalid API keys
+    
+    **Solution**:
+    1. Check function logs: `supabase functions logs <function-name>`
+    2. Verify all secrets are set: `supabase secrets list`
+    3. Test API keys manually
+  </Accordion>
+  
+  <Accordion title="Scrape.do returns empty results">
+    **Cause**: X.com blocking requests or rate limiting
+    
+    **Solution**:
+    1. Enable `super: true` for residential proxies
+    2. Add `waitUntil: 'networkidle0'` to ensure full page load
+    3. Check Scrape.do dashboard for quota usage
+  </Accordion>
+  
+  <Accordion title="Gemini API timeout">
+    **Cause**: Large batch of posts or API latency
+    
+    **Solution**:
+    1. Reduce batch size in `analyze-sentiment` (currently 50)
+    2. Implement retry logic with exponential backoff
+    3. Use keyword fallback if Gemini consistently fails
+  </Accordion>
+  
+  <Accordion title="Function deployment fails">
+    **Cause**: Syntax error or missing dependencies
+    
+    **Solution**:
+    1. Test function locally first
+    2. Check Deno import URLs are valid
+    3. Review deployment logs for specific errors
+  </Accordion>
+</AccordionGroup>
+
+## Security Best Practices
+
+<Steps>
+  <Step title="Enable JWT verification">
+    Set `verify_jwt = true` in `config.toml` for production
+  </Step>
+  
+  <Step title="Rotate API keys regularly">
+    Update secrets monthly:
+    ```bash
+    supabase secrets set SCRAPE_DO_TOKEN=new-token
+    ```
+  </Step>
+  
+  <Step title="Implement rate limiting">
+    Use Supabase's built-in rate limiting or implement custom logic
+  </Step>
+  
+  <Step title="Monitor for abuse">
+    Set up alerts for unusual traffic patterns
+  </Step>
+</Steps>
+
+## CI/CD Integration
+
+Automate edge function deployment with GitHub Actions:
+
+```yaml .github/workflows/deploy-functions.yml
+name: Deploy Edge Functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      
+      - name: Deploy functions
+        run: supabase functions deploy --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configure Secrets" icon="key" href="/deployment/environment-secrets">
+    Set up all required API keys and secrets
+  </Card>
+  
+  <Card title="Deploy Frontend" icon="react" href="/deployment/frontend">
+    Deploy the React frontend to connect to edge functions
+  </Card>
+</CardGroup>
