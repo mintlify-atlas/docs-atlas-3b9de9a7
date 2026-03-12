@@ -1,12 +1,12 @@
 ---
 title: API Keys
-description: Get API keys for YouTube, Gemini, Groq, and other third-party services
+description: Get API keys for OpenAI, YouTube, Gemini, Groq, and other third-party services
 ---
 
 SENTi-radar integrates with multiple third-party APIs to enhance data collection and AI analysis. This guide walks you through obtaining API keys for each service.
 
 <Note>
-  All API keys listed here are **optional**. SENTi-radar has built-in fallback mechanisms and works without any external AI keys by using local keyword-based analysis.
+  All AI API keys listed here are **optional**. SENTi-radar has built-in fallback mechanisms and works without any external AI keys by using local keyword-based analysis.
 </Note>
 
 ## Overview
@@ -15,8 +15,9 @@ SENTi-radar integrates with multiple third-party APIs to enhance data collection
 |---------|---------|----------|-----------|---------------|
 | **Scrape.do** | X & Reddit scraping | ⭐ Recommended | ✅ Yes | 1,000 requests |
 | **YouTube Data API** | Video comments | Optional | ✅ Yes | 10,000 units/day |
-| **Google Gemini** | AI sentiment analysis | Optional | ✅ Yes | 15 RPM (free tier) |
-| **Groq** | Secondary LLM | Optional | ✅ Yes | 14,400 requests/day |
+| **OpenAI** | AI insights (Tier 1) | Optional | ❌ Pay-per-use | $0.15/1M input tokens |
+| **Google Gemini** | AI analysis (Tier 2) | Optional | ✅ Yes | 15 RPM (free tier) |
+| **Groq** | LLM fallback (Tier 3) | Optional | ✅ Yes | 14,400 requests/day |
 | **Parallel.ai** | Social search fallback | Optional | ❌ Paid only | Varies by plan |
 
 ## Scrape.do (Recommended)
@@ -119,9 +120,77 @@ Enables fetching video search results and comments for sentiment analysis.
 
 ---
 
+## OpenAI (GPT-4o mini)
+
+**Tier 1 AI provider** for strategic insights and chat. Provides the highest quality analysis.
+
+<Steps>
+  <Step title="Create OpenAI account">
+    1. Go to [platform.openai.com](https://platform.openai.com/)
+    2. Click **Sign up** and create an account
+    3. Complete email verification
+  </Step>
+
+  <Step title="Add billing">
+    1. Navigate to [Billing Settings](https://platform.openai.com/account/billing)
+    2. Add a payment method
+    3. Set a usage limit to control costs (recommended: $10/month)
+  </Step>
+
+  <Step title="Create API key">
+    1. Go to [API Keys](https://platform.openai.com/api-keys)
+    2. Click **Create new secret key**
+    3. Name it: `senti-radar-production`
+    4. Copy the key (starts with `sk-proj-`)
+    
+    <Warning>
+      Copy this key now! You won't be able to see it again.
+    </Warning>
+  </Step>
+
+  <Step title="Add to environment">
+    **Client (.env):**
+    ```bash
+    VITE_OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxx
+    ```
+  </Step>
+
+  <Step title="Verify integration">
+    Test the API key:
+
+    ```bash
+    curl https://api.openai.com/v1/chat/completions \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer YOUR_API_KEY" \
+      -d '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Test"}]}'
+    ```
+  </Step>
+</Steps>
+
+**Model Used:** `gpt-4o-mini`
+
+**Rate Limits:**
+- Free tier: Not available (pay-per-use only)
+- Tier 1: 500 RPM, 200,000 TPM
+- Tier 2+: Higher limits based on usage
+
+**Pricing:**
+- Input: $0.150 per 1M tokens
+- Output: $0.600 per 1M tokens
+- Typical insight report: ~$0.001-0.003 per analysis
+
+**Fallback:** If OpenAI fails → Gemini → Groq → Local analysis
+
+**Documentation:** [OpenAI API Docs](https://platform.openai.com/docs)
+
+**Used in:**
+- Client-side AI Insights Panel (strategic reports and chat)
+
+---
+
 ## Google Gemini AI
 
-Powers AI sentiment analysis, emotion detection, and summary generation.
+**Tier 2 AI provider** for sentiment analysis, emotion detection, and summary generation.
 
 <Steps>
   <Step title="Get API key">
@@ -149,14 +218,14 @@ Powers AI sentiment analysis, emotion detection, and summary generation.
     Test the API key:
 
     ```bash
-    curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=YOUR_API_KEY" \
+    curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=YOUR_API_KEY" \
       -H 'Content-Type: application/json' \
       -d '{"contents":[{"parts":[{"text":"Test"}]}]}'
     ```
   </Step>
 </Steps>
 
-**Model Used:** `gemini-1.5-flash`
+**Model Used:** `gemini-2.0-flash`
 
 **Rate Limits (Free Tier):**
 - 15 requests per minute (RPM)

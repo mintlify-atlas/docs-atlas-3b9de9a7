@@ -1,0 +1,223 @@
+---
+title: SentimentChart
+description: Time-series area chart displaying sentiment trends over multiple time ranges
+---
+
+The `SentimentChart` component visualizes sentiment trends over time using Recharts. It displays positive, negative, and neutral sentiment scores with configurable time ranges from 6 hours to 7 days.
+
+## Usage
+
+```tsx
+import SentimentChart from '@/components/SentimentChart';
+
+function Dashboard() {
+  return (
+    <div className="panel">
+      <SentimentChart />
+    </div>
+  );
+}
+```
+
+## Features
+
+- **Multiple time ranges**: 6H, 12H, 24H, 3D, 7D
+- **Three sentiment lines**: Positive (green), Negative (red), Neutral (gray)
+- **Volume indicator**: Shows post volume in tooltip
+- **Live data integration**: Uses `useSentimentTimeline()` hook with fallback to mock data
+- **Dark mode support**: Automatically adapts colors based on theme
+- **Responsive design**: Fluid width and height adjustment
+
+## Data Structure
+
+The chart expects data in the following format:
+
+```typescript
+interface TrendPoint {
+  time: string;        // e.g., "2:00 PM" or "Jan 3"
+  positive: number;    // 0-100
+  negative: number;    // 0-100
+  neutral: number;     // 0-100
+  volume?: number;     // Optional post count
+}
+```
+
+## Time Ranges
+
+Available time range options:
+
+| Label | Hours | Data Points | Typical Use Case |
+|-------|-------|-------------|------------------|
+| 6H    | 6     | 12          | Real-time monitoring |
+| 12H   | 12    | 24          | Short-term trends |
+| 24H   | 24    | 24          | Daily overview (default) |
+| 3D    | 72    | 36          | Multi-day analysis |
+| 7D    | 168   | 42          | Weekly trends |
+
+## Implementation Details
+
+### State Management
+
+```tsx
+const [selectedRange, setSelectedRange] = useState(2); // 24H default
+const { data: liveData } = useSentimentTimeline();
+const { resolvedTheme } = useTheme();
+```
+
+### Data Source Priority
+
+1. **Live data**: If `useSentimentTimeline()` returns data from the database
+2. **Mock data**: Generated via `generateTrendData()` if no live data available
+
+### Custom Tooltip
+
+The tooltip displays:
+- **Time label**: Formatted timestamp
+- **Color indicators**: Matching the line colors
+- **Sentiment values**: Positive, negative, neutral scores
+- **Volume**: Total posts (if available)
+
+```tsx
+<div className="rounded-lg border border-border bg-card px-3 py-2.5">
+  <p className="font-mono text-[10px]">{label}</p>
+  {payload.map(entry => (
+    <div className="flex items-center gap-2">
+      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: entry.stroke }} />
+      <span>{entry.dataKey}</span>
+      <span className="ml-auto font-mono">{entry.value}</span>
+    </div>
+  ))}
+</div>
+```
+
+## Color Scheme
+
+### Light Mode
+- Positive: `hsl(142, 76%, 36%)` (emerald-600)
+- Negative: `hsl(0, 84%, 60%)` (red-500)
+- Neutral: `hsl(220, 9%, 46%)` (gray-500)
+- Grid: `hsl(220, 14%, 87%)`
+
+### Dark Mode
+- Positive: `hsl(142, 71%, 45%)` (emerald-500)
+- Negative: `hsl(0, 72%, 51%)` (red-600)
+- Neutral: `hsl(220, 9%, 46%)`
+- Grid: `hsl(222, 12%, 22%)`
+
+## Chart Configuration
+
+```tsx
+<ResponsiveContainer width="100%" height={240}>
+  <AreaChart data={data}>
+    <defs>
+      {/* Gradients for filled areas */}
+      <linearGradient id="colorPositive" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="5%" stopColor={positiveColor} stopOpacity={0.2} />
+        <stop offset="95%" stopColor={positiveColor} stopOpacity={0} />
+      </linearGradient>
+    </defs>
+    
+    <CartesianGrid strokeDasharray="3 3" stroke={gridColor} opacity={0.3} />
+    
+    <XAxis 
+      dataKey="time" 
+      tick={{ fontSize: 10 }}
+      stroke={gridColor}
+    />
+    
+    <YAxis 
+      domain={[0, 100]} 
+      tick={{ fontSize: 10 }}
+      stroke={gridColor}
+    />
+    
+    <Tooltip content={<CustomTooltip />} />
+    
+    <Area
+      type="monotone"
+      dataKey="positive"
+      stroke={positiveColor}
+      fill="url(#colorPositive)"
+      strokeWidth={2}
+    />
+    <Area
+      type="monotone"
+      dataKey="negative"
+      stroke={negativeColor}
+      fill="url(#colorNegative)"
+      strokeWidth={2}
+    />
+    <Area
+      type="monotone"
+      dataKey="neutral"
+      stroke={neutralColor}
+      fill="url(#colorNeutral)"
+      strokeWidth={2}
+    />
+  </AreaChart>
+</ResponsiveContainer>
+```
+
+## Integration with Database
+
+The component uses the `useSentimentTimeline()` hook to fetch live data:
+
+```typescript
+export function useSentimentTimeline() {
+  return useQuery({
+    queryKey: ['sentiment-timeline'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('sentiment_timeline')
+        .select('*')
+        .order('timestamp', { ascending: true })
+        .limit(50);
+      
+      return data?.map(row => ({
+        time: new Date(row.timestamp).toLocaleTimeString(),
+        positive: row.positive || 0,
+        negative: row.negative || 0,
+        neutral: row.neutral || 0,
+        volume: row.volume,
+      }));
+    },
+    refetchInterval: 30000, // Refresh every 30s
+  });
+}
+```
+
+## Performance Optimization
+
+```tsx
+// Memoize mock data generation
+const mockData = useMemo(
+  () => generateTrendData(ranges[selectedRange].hours),
+  [selectedRange]
+);
+
+// Only recalculate derived values when theme changes
+const gridColor = useMemo(
+  () => isDark ? 'hsl(222,12%,22%)' : 'hsl(220,14%,87%)',
+  [isDark]
+);
+```
+
+## Accessibility
+
+- Color-blind friendly: Uses distinct line styles and gradients
+- Keyboard navigation: Clickable time range buttons
+- Screen reader: Chart data accessible via tooltip
+
+## Related Components
+
+<CardGroup cols={2}>
+  <Card title="SentimentGauge" icon="gauge" href="/components/sentiment-gauge">
+    Current sentiment score visualization
+  </Card>
+  <Card title="EmotionBreakdown" icon="chart-bar" href="/components/emotion-breakdown">
+    Six-emotion distribution bars
+  </Card>
+  <Card title="TopicDetail" icon="newspaper" href="/components/topic-detail">
+    Main analysis container
+  </Card>
+</CardGroup>

@@ -73,6 +73,17 @@ These variables are prefixed with `VITE_` and are bundled into your frontend app
 
 ### Optional Variables
 
+<ParamField path="VITE_OPENAI_API_KEY" type="string" default="none">
+  OpenAI API key for GPT-4o mini AI insights (Tier 1 - highest quality).
+  
+  - **Get your key:** [OpenAI Platform](https://platform.openai.com/api-keys)
+  - **Model used:** `gpt-4o-mini`
+  - **Used by:** Client-side AI insights panel for strategic analysis and chat
+  - **Fallback chain:** OpenAI → Gemini → Groq → Local
+  
+  **Example:** `sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxx`
+</ParamField>
+
 <ParamField path="VITE_YOUTUBE_API_KEY" type="string" default="none">
   YouTube Data API v3 key for fetching video titles and comments.
   
@@ -84,20 +95,21 @@ These variables are prefixed with `VITE_` and are bundled into your frontend app
 </ParamField>
 
 <ParamField path="VITE_GEMINI_API_KEY" type="string" default="none">
-  Google Gemini API key for streaming AI summaries and sentiment analysis.
+  Google Gemini API key for streaming AI summaries and sentiment analysis (Tier 2).
   
   - **Get your key:** [Google AI Studio](https://ai.google.dev/)
-  - **Model used:** `gemini-1.5-flash`
+  - **Model used:** `gemini-2.0-flash`
   - **Fallback:** Local keyword-based analysis engine (always available)
   
   **Example:** `AIzaSyCxxxxxxxxxxxxxxxxxxxxxxxx`
 </ParamField>
 
 <ParamField path="VITE_GROQ_API_KEY" type="string" default="none">
-  Groq API key for secondary LLM streaming summaries (alternative to Gemini).
+  Groq API key for streaming summaries via Supabase edge function (Tier 3).
   
   - **Get your key:** [Groq Console](https://console.groq.com/)
-  - **Used by:** Client-side AI summary generation as a fallback option
+  - **Model used:** `llama-3.3-70b-versatile`
+  - **Used by:** Supabase `generate-insights` edge function
   
   **Example:** `gsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`
 </ParamField>

@@ -93,6 +93,7 @@
               "components/overview",
               "components/topic-detail",
               "components/sentiment-gauge",
+              "components/sentiment-chart",
               "components/emotion-breakdown"
             ]
           },
